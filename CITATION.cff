@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "Literature Collector"
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "FILL IN"
+    given-names: "FILL IN"
+    email: "jdevaneyan@gmail.com"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+    # affiliation: "FILL IN"
+repository-code: "https://github.com/FILL_IN_USERNAME/literature-collector"
+url: "https://github.com/FILL_IN_USERNAME/literature-collector"
+abstract: >-
+  Literature Collector is an open-source local-first workspace for academic
+  literature management. It unifies multi-database search (OpenAlex, PubMed,
+  Semantic Scholar, arXiv), bulk citation extraction from curated review papers,
+  duplicate detection, PRISMA-style screening with keyboard shortcuts, and
+  formatted Excel export — designed for small research groups that need
+  reproducible literature workflows without cloud services.
+keywords:
+  - literature-review
+  - cheminformatics
+  - bibliometrics
+  - systematic-review
+  - openalex
+  - pubmed
+  - semantic-scholar
+  - arxiv
+  - streamlit
+license: MIT
+version: 0.1.0
+date-released: 2026-05-19

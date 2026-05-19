@@ -1,0 +1,41 @@
+# Environment variables — never commit real keys
+.env
+.envrc
+
+# Editor / CLI tool local settings
+.claude/
+.codex/
+
+# User data and runtime files
+review_collector.db
+*.db
+streamlit.log
+search_jobs/
+extract_jobs/
+uploaded_pdfs/
+# Personal one-off helper scripts and sample exports — never commit.
+_load_queue.py
+amide_queries.txt
+*_cited_articles.csv
+*_landscape*.json
+*_collection*.json
+*_library*.xlsx
+# Windows installers / random binaries that wandered into the project dir.
+*.exe
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS / editor noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

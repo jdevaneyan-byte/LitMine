@@ -1,0 +1,3 @@
+# Test and dev tooling. Install with: pip install -r requirements-dev.txt
+pytest>=8.0
+responses>=0.25
