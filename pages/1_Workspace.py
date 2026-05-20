@@ -224,6 +224,7 @@ def save_to_library(
                     source=imported_from or art.get("source", "Import"),
                     url=art.get("url", ""),
                     pub_type=art.get("pub_type", ""),
+                    citation_count=art.get("citation_count"),
                     screening_status="unscreened",
                     imported_from=imported_from,
                 )

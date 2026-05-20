@@ -97,6 +97,7 @@ class CollectedArticle(Base):
     source = Column(String(50), nullable=False)
     url = Column(String(1000), nullable=True)
     pub_type = Column(String(60), default="")  # normalized publication type from the source
+    citation_count = Column(Integer, nullable=True)  # global citations (OpenAlex/S2)
     notes = Column(Text, default="")
     tags = Column(String(500), default="")
     screening_status = Column(String(20), default="unscreened")
@@ -212,6 +213,7 @@ def init_db():
         ("collected_articles", "pdf_path", "VARCHAR(1000)"),
         ("collected_articles", "imported_from", "VARCHAR(100) DEFAULT ''"),
         ("collected_articles", "pub_type", "VARCHAR(60) DEFAULT ''"),
+        ("collected_articles", "citation_count", "INTEGER"),
         ("cited_articles", "is_book", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:

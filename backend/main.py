@@ -70,6 +70,7 @@ def _article_dict(a: CollectedArticle) -> dict:
         "abstract": a.abstract,
         "source": a.source,
         "pub_type": a.pub_type,
+        "citation_count": a.citation_count,
         "screening_status": a.screening_status or "unscreened",
         "tags": a.tags or "",
         "notes": a.notes or "",
@@ -128,6 +129,7 @@ def list_articles(
     decision: str = "all",
     year_min: int = 0,
     pub_type: str = "all",
+    sort: str = "year",
     limit: int = Query(100, le=2000),
     offset: int = 0,
 ):
@@ -144,7 +146,10 @@ def list_articles(
             query = query.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= year_min)  # noqa: E711
         if pub_type != "all":
             query = query.filter(CollectedArticle.pub_type == pub_type)
-        ordered = query.order_by(CollectedArticle.year.desc().nullslast(), CollectedArticle.id.desc())
+        if sort == "citations":
+            ordered = query.order_by(CollectedArticle.citation_count.desc().nullslast(), CollectedArticle.id.desc())
+        else:
+            ordered = query.order_by(CollectedArticle.year.desc().nullslast(), CollectedArticle.id.desc())
         total = ordered.count()
         rows = ordered.offset(offset).limit(limit).all()
         return {"total": total, "items": [_article_dict(a) for a in rows]}

@@ -27,6 +27,7 @@ export interface Article {
   abstract: string | null;
   source: string;
   pub_type: string | null;
+  citation_count: number | null;
   screening_status: string;
   tags: string;
   notes: string;

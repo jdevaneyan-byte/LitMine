@@ -29,7 +29,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <header className="sticky top-0 z-20 border-b bg-[var(--surface)]/90 backdrop-blur">
-          <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-6">
+          <div className="flex h-14 w-full items-center gap-3 px-6">
             <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--primary)] text-xs font-bold text-white">
                 LM
@@ -41,7 +41,7 @@ export default function RootLayout({
             </span>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-6">{children}</main>
+        <main className="w-full flex-1 px-6 py-6">{children}</main>
       </body>
     </html>
   );

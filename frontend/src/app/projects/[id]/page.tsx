@@ -75,12 +75,13 @@ function LibraryTab({ projectId }: { projectId: number }) {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [decision, setDecision] = useState("all");
+  const [sort, setSort] = useState<"year" | "citations">("year");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setLoading(true);
     const handle = setTimeout(() => {
-      listArticles(projectId, { q, decision, limit: PAGE, offset: page * PAGE })
+      listArticles(projectId, { q, decision, sort, limit: PAGE, offset: page * PAGE })
         .then((r) => {
           setItems(r.items);
           setTotal(r.total);
@@ -88,7 +89,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
         .finally(() => setLoading(false));
     }, 250); // debounce the keyword box
     return () => clearTimeout(handle);
-  }, [projectId, q, decision, page]);
+  }, [projectId, q, decision, sort, page]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE));
 
@@ -118,6 +119,18 @@ function LibraryTab({ projectId }: { projectId: number }) {
             </option>
           ))}
         </select>
+        <select
+          className="input max-w-[170px]"
+          value={sort}
+          onChange={(e) => {
+            setPage(0);
+            setSort(e.target.value as "year" | "citations");
+          }}
+          title="Sort order"
+        >
+          <option value="year">Sort: newest first</option>
+          <option value="citations">Sort: most cited</option>
+        </select>
         <span className="ml-auto text-xs text-[var(--muted)]">
           {total.toLocaleString()} papers
         </span>
@@ -130,6 +143,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
               <th className="px-3 py-2 font-medium">#</th>
               <th className="px-3 py-2 font-medium">Title</th>
               <th className="px-3 py-2 font-medium">Year</th>
+              <th className="px-3 py-2 text-right font-medium">Citations</th>
               <th className="px-3 py-2 font-medium">Type</th>
               <th className="px-3 py-2 font-medium">Source</th>
               <th className="px-3 py-2 font-medium">Decision</th>
@@ -139,7 +153,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
             {loading &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b">
-                  <td colSpan={6} className="px-3 py-3">
+                  <td colSpan={7} className="px-3 py-3">
                     <div className="h-4 animate-pulse rounded bg-[var(--bg)]" />
                   </td>
                 </tr>
@@ -153,6 +167,9 @@ function LibraryTab({ projectId }: { projectId: number }) {
                     <span className="text-xs text-[var(--muted)]">{a.authors}</span>
                   </td>
                   <td className="px-3 py-2 tabular-nums">{a.year ?? ""}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {a.citation_count != null ? a.citation_count.toLocaleString() : <span className="text-[var(--muted)]">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.pub_type || ""}</td>
                   <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.source}</td>
                   <td className="px-3 py-2">
@@ -162,7 +179,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
               ))}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+                <td colSpan={7} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
                   No matching papers.
                 </td>
               </tr>

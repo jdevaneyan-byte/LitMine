@@ -28,6 +28,7 @@ export interface ArticleFilters {
   decision?: string;
   year_min?: number;
   pub_type?: string;
+  sort?: "year" | "citations";
   limit?: number;
   offset?: number;
 }
@@ -38,6 +39,7 @@ export async function listArticles(projectId: number, f: ArticleFilters = {}): P
   if (f.decision && f.decision !== "all") params.set("decision", f.decision);
   if (f.year_min) params.set("year_min", String(f.year_min));
   if (f.pub_type && f.pub_type !== "all") params.set("pub_type", f.pub_type);
+  if (f.sort) params.set("sort", f.sort);
   params.set("limit", String(f.limit ?? 100));
   params.set("offset", String(f.offset ?? 0));
   return get<ArticlePage>(`/api/projects/${projectId}/articles?${params.toString()}`);

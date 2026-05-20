@@ -4,7 +4,7 @@ from typing import Optional
 
 BASE_URL = "https://api.openalex.org"
 MAILTO = "research@litmine.app"
-FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id,type"
+FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id,type,cited_by_count"
 
 
 def _reconstruct_abstract(inverted_index: Optional[dict]) -> str:
@@ -50,6 +50,7 @@ def _parse_work(work: dict) -> dict:
         "source": "OpenAlex",
         "url": url,
         "pub_type": work.get("type") or "",
+        "citation_count": work.get("cited_by_count"),
     }
 
 
