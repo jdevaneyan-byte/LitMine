@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { editArticle, getArticle, listArticles } from "@/lib/api";
+import { editArticle, getArticle, listArticles, trashArticle } from "@/lib/api";
 import type { Article } from "@/lib/types";
 
 const DECISIONS = ["unscreened", "include", "maybe", "exclude"] as const;
@@ -9,6 +9,8 @@ const DECISIONS = ["unscreened", "include", "maybe", "exclude"] as const;
 export default function ReadReview({ projectId }: { projectId: number }) {
   const [list, setList] = useState<Article[]>([]);
   const [q, setQ] = useState("");
+  const [journal, setJournal] = useState("");
+  const [yearMin, setYearMin] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<Article | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -16,15 +18,28 @@ export default function ReadReview({ projectId }: { projectId: number }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Article>>({});
 
+  const reload = useCallback(() => {
+    return listArticles(projectId, {
+      q,
+      journal,
+      year_min: yearMin ? Number(yearMin) : undefined,
+      limit: 200,
+    }).then((r) => {
+      setList(r.items);
+      return r.items;
+    });
+  }, [projectId, q, journal, yearMin]);
+
   useEffect(() => {
     const h = setTimeout(() => {
-      listArticles(projectId, { q, limit: 200 }).then((r) => {
-        setList(r.items);
-        if (r.items.length && selectedId === null) setSelectedId(r.items[0].id);
+      reload().then((items) => {
+        if (items.length && (selectedId === null || !items.some((a) => a.id === selectedId))) {
+          setSelectedId(items[0].id);
+        }
       });
     }, 250);
     return () => clearTimeout(h);
-  }, [projectId, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -77,17 +92,32 @@ export default function ReadReview({ projectId }: { projectId: number }) {
     }
   }, [detail]);
 
+  const trash = useCallback(async () => {
+    if (!detail) return;
+    await trashArticle(detail.id);
+    const removedId = detail.id;
+    const items = await reload();
+    const next = items.find((a) => a.id !== removedId);
+    setSelectedId(next ? next.id : null);
+    if (!next) setDetail(null);
+  }, [detail, reload]);
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
       {/* Left: list */}
-      <div className="card flex max-h-[75vh] flex-col overflow-hidden">
-        <div className="border-b p-2">
-          <input
-            className="input"
-            placeholder="Filter by title…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+      <div className="card flex max-h-[78vh] flex-col overflow-hidden">
+        <div className="space-y-2 border-b p-2">
+          <input className="input" placeholder="Filter by title…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="flex gap-2">
+            <input className="input" placeholder="Journal contains…" value={journal} onChange={(e) => setJournal(e.target.value)} />
+            <input
+              className="input max-w-[110px]"
+              type="number"
+              placeholder="Year ≥"
+              value={yearMin}
+              onChange={(e) => setYearMin(e.target.value)}
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {list.map((a) => (
@@ -99,8 +129,10 @@ export default function ReadReview({ projectId }: { projectId: number }) {
               }`}
             >
               <div className="line-clamp-2 text-sm font-medium">{a.title}</div>
+              {a.venue && <div className="mt-0.5 line-clamp-1 text-xs italic text-[var(--muted)]">{a.venue}</div>}
               <div className="mt-1 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <span>{a.year ?? "—"}</span>
+                {a.citation_count != null && <span>· {a.citation_count.toLocaleString()} cites</span>}
                 <DecisionDot value={a.screening_status} />
                 {a.edited_by_user && <span className="badge badge-edited">edited</span>}
               </div>
@@ -124,9 +156,19 @@ export default function ReadReview({ projectId }: { projectId: number }) {
                 {detail.pub_type && <span className="badge">{detail.pub_type}</span>}
                 <span className="badge">{detail.source}</span>
               </div>
-              <button className="btn btn-ghost" onClick={() => setEditing((v) => !v)}>
-                {editing ? "Cancel" : "Edit"}
-              </button>
+              <div className="flex gap-2">
+                <button className="btn btn-ghost" onClick={() => setEditing((v) => !v)}>
+                  {editing ? "Cancel" : "Edit"}
+                </button>
+                <button
+                  className="btn"
+                  style={{ color: "#b91c1c", borderColor: "#fecaca" }}
+                  onClick={trash}
+                  title="Move to trash (collected by mistake / wrong field). Different from 'exclude'."
+                >
+                  Delete
+                </button>
+              </div>
             </div>
 
             {editing ? (
@@ -201,8 +243,10 @@ function ReadView({ detail }: { detail: Article }) {
     <div>
       <h2 className="text-lg font-semibold leading-snug">{detail.title}</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">{detail.authors}</p>
+      {detail.venue && <p className="mt-0.5 text-sm italic text-[var(--muted)]">{detail.venue}</p>}
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
         {detail.year && <span>Year: {detail.year}</span>}
+        {detail.citation_count != null && <span>Citations: {detail.citation_count.toLocaleString()}</span>}
         {detail.doi && (
           <a className="text-[var(--primary)] hover:underline" href={`https://doi.org/${detail.doi}`} target="_blank" rel="noreferrer">
             DOI: {detail.doi}

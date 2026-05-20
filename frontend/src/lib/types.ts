@@ -27,11 +27,13 @@ export interface Article {
   abstract: string | null;
   source: string;
   pub_type: string | null;
+  venue: string;
   citation_count: number | null;
   screening_status: string;
   tags: string;
   notes: string;
   decision_reason: string;
+  is_deleted: boolean;
   edited_by_user: boolean;
   references?: Reference[];
   references_error?: string;

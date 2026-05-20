@@ -34,14 +34,19 @@ def backfill(project_id: int | None = None) -> None:
     init_db()
     session = new_session()
     try:
-        q = session.query(CollectedArticle).filter(CollectedArticle.citation_count.is_(None))
+        # Rows missing a citation count OR a journal name.
+        q = session.query(CollectedArticle).filter(
+            (CollectedArticle.citation_count.is_(None))
+            | (CollectedArticle.venue.is_(None))
+            | (CollectedArticle.venue == "")
+        )
         if project_id is not None:
             q = q.filter_by(project_id=project_id)
         rows = [r for r in q.all() if r.doi]
     finally:
         session.close()
 
-    print(f"{len(rows)} rows with a DOI need a citation count.")
+    print(f"{len(rows)} rows with a DOI need a citation count and/or journal.")
     if not rows:
         return
 
@@ -53,7 +58,7 @@ def backfill(project_id: int | None = None) -> None:
     for i in range(0, len(dois), BATCH):
         chunk = dois[i : i + BATCH]
         filt = "doi:" + "|".join(chunk)
-        params = {"filter": filt, "per-page": BATCH, "select": "doi,cited_by_count"}
+        params = {"filter": filt, "per-page": BATCH, "select": "doi,cited_by_count,primary_location"}
         if mailto:
             params["mailto"] = mailto
         try:
@@ -69,16 +74,20 @@ def backfill(project_id: int | None = None) -> None:
         for w in results:
             wd = _norm((w.get("doi") or ""))
             if wd:
-                found[wd] = w.get("cited_by_count", 0)
+                source = (w.get("primary_location") or {}).get("source") or {}
+                found[wd] = (w.get("cited_by_count", 0), source.get("display_name") or "")
 
         sess = new_session()
         try:
-            for d, count in found.items():
+            for d, (count, venue) in found.items():
                 rid = by_doi.get(d)
                 if rid is not None:
                     art = sess.get(CollectedArticle, rid)
                     if art is not None:
-                        art.citation_count = count
+                        if art.citation_count is None:
+                            art.citation_count = count
+                        if not art.venue and venue:
+                            art.venue = venue
                         updated += 1
             sess.commit()
         finally:

@@ -40,6 +40,8 @@ def _parse_work(work: dict) -> dict:
 
     loc = work.get("primary_location") or {}
     url = loc.get("landing_page_url") or work.get("id", "")
+    source_obj = loc.get("source") or {}
+    venue = source_obj.get("display_name") or ""
 
     return {
         "title": title,
@@ -51,6 +53,7 @@ def _parse_work(work: dict) -> dict:
         "url": url,
         "pub_type": work.get("type") or "",
         "citation_count": work.get("cited_by_count"),
+        "venue": venue,
     }
 
 

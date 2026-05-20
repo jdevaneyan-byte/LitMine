@@ -8,7 +8,7 @@ import type { GraphNode, Network, NetworkMode } from "@/lib/types";
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), { ssr: false });
 
 const MODES: { key: NetworkMode; label: string; purpose: string }[] = [
-  { key: "citation", label: "Citation", purpose: "Find foundational papers: which works your reviews cite most, and which reviews cite them." },
+  { key: "citation", label: "Citation", purpose: "Find foundational papers: which works your source papers cite most, and which sources cite them." },
   { key: "author", label: "Authors", purpose: "See the research community: who publishes together on this topic." },
   { key: "journal", label: "Journals", purpose: "See where the field lives: which journals cite which venues." },
 ];
@@ -355,7 +355,7 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
               <h3 className="mt-2 text-sm font-semibold leading-snug">{selectedNode.label}</h3>
               <dl className="mt-3 space-y-1.5 text-xs">
                 {selectedNode.year != null && <Row k="Year" v={String(selectedNode.year)} />}
-                {selectedNode.cited_by_count != null && <Row k="Cited by (reviews)" v={String(selectedNode.cited_by_count)} />}
+                {selectedNode.cited_by_count != null && <Row k="Cited by (sources)" v={String(selectedNode.cited_by_count)} />}
                 {selectedNode.papers != null && <Row k="Papers" v={String(selectedNode.papers)} />}
                 {selectedNode.doi && (
                   <Row k="DOI" v={<a className="text-[var(--primary)] hover:underline" href={`https://doi.org/${selectedNode.doi}`} target="_blank" rel="noreferrer">{selectedNode.doi}</a>} />

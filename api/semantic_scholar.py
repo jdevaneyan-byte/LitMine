@@ -4,7 +4,7 @@ import time
 from typing import Optional
 
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
-FIELDS = "title,abstract,year,authors,externalIds,url,publicationTypes,citationCount"
+FIELDS = "title,abstract,year,authors,externalIds,url,publicationTypes,citationCount,venue"
 
 
 def _headers() -> dict:
@@ -136,4 +136,5 @@ def _parse_paper(paper: dict) -> dict:
         "url": url,
         "pub_type": pub_type,
         "citation_count": paper.get("citationCount"),
+        "venue": paper.get("venue") or "",
     }

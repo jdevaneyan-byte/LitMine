@@ -97,11 +97,14 @@ class CollectedArticle(Base):
     source = Column(String(50), nullable=False)
     url = Column(String(1000), nullable=True)
     pub_type = Column(String(60), default="")  # normalized publication type from the source
+    venue = Column(String(500), default="")  # journal / venue name
     citation_count = Column(Integer, nullable=True)  # global citations (OpenAlex/S2)
     notes = Column(Text, default="")
     tags = Column(String(500), default="")
     screening_status = Column(String(20), default="unscreened")
     decision_reason = Column(Text, default="")
+    is_deleted = Column(Boolean, default=False)  # soft-delete → trash; distinct from "exclude"
+    deleted_at = Column(DateTime, nullable=True)
     pdf_path = Column(String(1000), nullable=True)
     imported_from = Column(String(100), default="")
     added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -214,6 +217,9 @@ def init_db():
         ("collected_articles", "imported_from", "VARCHAR(100) DEFAULT ''"),
         ("collected_articles", "pub_type", "VARCHAR(60) DEFAULT ''"),
         ("collected_articles", "citation_count", "INTEGER"),
+        ("collected_articles", "venue", "VARCHAR(500) DEFAULT ''"),
+        ("collected_articles", "is_deleted", "BOOLEAN DEFAULT 0"),
+        ("collected_articles", "deleted_at", "DATETIME"),
         ("cited_articles", "is_book", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:

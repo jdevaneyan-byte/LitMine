@@ -70,11 +70,13 @@ def _article_dict(a: CollectedArticle) -> dict:
         "abstract": a.abstract,
         "source": a.source,
         "pub_type": a.pub_type,
+        "venue": a.venue or "",
         "citation_count": a.citation_count,
         "screening_status": a.screening_status or "unscreened",
         "tags": a.tags or "",
         "notes": a.notes or "",
         "decision_reason": a.decision_reason or "",
+        "is_deleted": bool(a.is_deleted),
         "edited_by_user": bool((a.notes or "").startswith("[edited]") or (a.imported_from == "manual-edit")),
     }
 
@@ -129,6 +131,8 @@ def list_articles(
     decision: str = "all",
     year_min: int = 0,
     pub_type: str = "all",
+    journal: str = "",
+    view: str = "active",  # "active" (default) hides trash; "trash" shows only deleted
     sort: str = "year",
     limit: int = Query(100, le=2000),
     offset: int = 0,
@@ -136,8 +140,14 @@ def list_articles(
     session = new_session()
     try:
         query = session.query(CollectedArticle).filter_by(project_id=project_id)
+        if view == "trash":
+            query = query.filter(CollectedArticle.is_deleted == True)  # noqa: E712
+        else:
+            query = query.filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
         if q.strip():
             query = query.filter(CollectedArticle.title.ilike(f"%{q.strip()}%"))
+        if journal.strip():
+            query = query.filter(CollectedArticle.venue.ilike(f"%{journal.strip()}%"))
         if decision == "unscreened":
             query = query.filter(CollectedArticle.screening_status.in_([v for v in UNSCREENED if v is not None]))
         elif decision != "all":
@@ -201,6 +211,70 @@ def edit_article(article_id: int, edit: ArticleEdit):
             a.imported_from = "manual-edit"
             session.commit()
         return {"ok": True, "changed": changed, "article": _article_dict(a)}
+    finally:
+        session.close()
+
+
+# Trash (soft delete) — distinct from the "exclude" screening decision
+
+@app.post("/api/articles/{article_id}/trash")
+def trash_article(article_id: int):
+    session = new_session()
+    try:
+        a = session.get(CollectedArticle, article_id)
+        if not a:
+            raise HTTPException(404, "article not found")
+        a.is_deleted = True
+        a.deleted_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"ok": True}
+    finally:
+        session.close()
+
+
+@app.post("/api/articles/{article_id}/restore")
+def restore_article(article_id: int):
+    session = new_session()
+    try:
+        a = session.get(CollectedArticle, article_id)
+        if not a:
+            raise HTTPException(404, "article not found")
+        a.is_deleted = False
+        a.deleted_at = None
+        session.commit()
+        return {"ok": True}
+    finally:
+        session.close()
+
+
+@app.delete("/api/articles/{article_id}")
+def delete_article_permanently(article_id: int):
+    """Permanent delete — only allowed for items already in the trash."""
+    session = new_session()
+    try:
+        a = session.get(CollectedArticle, article_id)
+        if not a:
+            raise HTTPException(404, "article not found")
+        if not a.is_deleted:
+            raise HTTPException(400, "move the article to trash before deleting permanently")
+        session.delete(a)
+        session.commit()
+        return {"ok": True}
+    finally:
+        session.close()
+
+
+@app.post("/api/projects/{project_id}/trash/empty")
+def empty_trash(project_id: int):
+    session = new_session()
+    try:
+        n = (
+            session.query(CollectedArticle)
+            .filter_by(project_id=project_id, is_deleted=True)
+            .delete(synchronize_session=False)
+        )
+        session.commit()
+        return {"ok": True, "deleted": n}
     finally:
         session.close()
 
