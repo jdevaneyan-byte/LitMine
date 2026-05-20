@@ -1,8 +1,12 @@
+import os
+
 from sqlalchemy import create_engine, event, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, text as _sa_text
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime, timezone
 
-DB_PATH = "litmine.db"
+# Database location is overridable via env var so deployments/tests can point
+# at a different file without editing code. Defaults to a local SQLite file.
+DB_PATH = os.getenv("LITMINE_DB", "litmine.db")
 
 
 class Base(DeclarativeBase):
@@ -165,6 +169,9 @@ class CitedArticle(Base):
     curated_review = relationship("CuratedReview", back_populates="cited_articles")
 
 
+# check_same_thread=False is required because background search/extraction
+# runs in daemon threads that share this engine; WAL mode + a busy timeout
+# (set in the connect handler below) make concurrent reads/writes safe.
 engine = create_engine(
     f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False}
 )
@@ -229,6 +236,26 @@ def init_db():
             conn.commit()
         except Exception:
             pass
+
+        # Partial unique indexes prevent the same DOI being saved twice within
+        # one project, while still allowing many rows with no DOI (empty/NULL).
+        # Created only if the existing data is already clean; if a legacy DB
+        # somehow has duplicates the CREATE fails and is skipped (no crash).
+        partial_unique_indexes = [
+            ("ux_collected_proj_doi", "collected_articles"),
+            ("ux_curated_proj_doi", "curated_reviews"),
+        ]
+        for index_name, table in partial_unique_indexes:
+            try:
+                conn.execute(
+                    _sa_text(
+                        f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
+                        f"ON {table} (project_id, doi) WHERE doi IS NOT NULL AND doi != ''"
+                    )
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()  # duplicates present or unsupported; skip enforcement
 
 
 def new_session():

@@ -11,6 +11,12 @@ import threading
 import uuid
 from pathlib import Path
 
+from utils.job_io import is_cancelled as _is_cancelled
+from utils.job_io import patch as _patch_io
+from utils.job_io import read_json as _read_json
+from utils.job_io import request_cancel as _request_cancel
+from utils.job_io import write_atomic as _write_atomic
+
 JOB_DIR = Path("search_jobs")
 JOB_DIR.mkdir(exist_ok=True)
 
@@ -53,10 +59,13 @@ def get_status(job_id: str) -> dict | None:
     job_file = JOB_DIR / f"{job_id}.json"
     if not job_file.exists():
         return None
-    try:
-        return json.loads(job_file.read_text())
-    except Exception:
-        return None
+    return _read_json(job_file)
+
+
+def request_cancel(job_id: str):
+    """Ask a running job to stop. The worker checks this between queries and
+    exits cleanly; it does not kill the file out from under the thread."""
+    _request_cancel(JOB_DIR / f"{job_id}.json")
 
 
 def clear_job(job_id: str):
@@ -75,9 +84,8 @@ def find_active_job(project_id: int, mode: str) -> str | None:
     for f in JOB_DIR.glob("*.json"):
         if f.name.startswith("queues_"):
             continue
-        try:
-            data = json.loads(f.read_text())
-        except Exception:
+        data = _read_json(f)
+        if data is None:
             continue
         if data.get("project_id") != project_id or data.get("mode") != mode:
             continue
@@ -93,16 +101,11 @@ def find_active_job(project_id: int, mode: str) -> str | None:
 # Internal
 
 def _write(path: Path, data: dict):
-    path.write_text(json.dumps(data))
+    _write_atomic(path, data)
 
 
 def _patch(path: Path, **kwargs):
-    try:
-        data = json.loads(path.read_text())
-        data.update(kwargs)
-        _write(path, data)
-    except Exception:
-        pass
+    _patch_io(path, **kwargs)
 
 
 def _parse_keywords(raw: str) -> list[str]:
@@ -141,6 +144,12 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
 
     try:
         for i, q in enumerate(queries):
+            if _is_cancelled(job_file):
+                data = _read_json(job_file) or {}
+                data.setdefault("log", []).append(f"Cancelled by user after {i} of {len(queries)} searches.")
+                data["done"] = True
+                _write(job_file, data)
+                return
             _patch(job_file, current_query=q, completed=i)
 
             fn = _runner

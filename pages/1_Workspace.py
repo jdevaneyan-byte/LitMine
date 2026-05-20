@@ -39,6 +39,7 @@ from utils.extract_job import (
     clear_job as clear_extract_job,
     find_active_job as find_active_extract_job,
     get_status as get_extract_status,
+    request_cancel as request_cancel_extract,
     start_extract_job,
 )
 from utils.import_refs import parse_reference_upload
@@ -48,6 +49,7 @@ from utils.search_job import (
     clear_job as clear_search_job,
     find_active_job as find_active_search_job,
     get_status as get_search_status,
+    request_cancel as request_cancel_search,
     start_job as start_search_job,
 )
 
@@ -977,8 +979,10 @@ elif section == "🔍 Search the web":
 
             _ws_search_progress()
             if st.button("Cancel search", type="secondary"):
-                clear_search_job(active_job)
-                st.session_state.pop("ws_search_job_id", None)
+                # Signal the worker to stop after the current query; the
+                # progress fragment clears the job once it reports done.
+                request_cancel_search(active_job)
+                st.toast("Cancelling after the current search…", icon="🛑")
                 st.rerun()
         else:
             saved = load_queues(selected_id)
@@ -1031,8 +1035,25 @@ elif section == "📥 Import my list":
     if target.startswith("Library"):
         st.caption("Accepted: CSV, BibTeX (.bib), RIS (.ris), or a plain text list of DOIs.")
         up = st.file_uploader("Reference file", type=["csv", "bib", "ris", "txt"], key="lib_upload")
+        do_enrich = st.checkbox(
+            "Look up missing metadata from Crossref",
+            value=True,
+            help="For DOI-only or sparse imports, fetch the real title, authors and "
+            "year from Crossref so the records are screenable. Adds ~0.1s per record.",
+        )
         if up and st.button("Import", type="primary"):
             refs = parse_reference_upload(up.name, up.getvalue())
+            if do_enrich and refs:
+                from utils.enrich import enrich_records
+
+                bar = st.progress(0.0, text="Looking up metadata from Crossref…")
+                enrich_records(
+                    refs,
+                    progress=lambda done, total: bar.progress(
+                        done / total if total else 1.0, text=f"Enriched {done}/{total}"
+                    ),
+                )
+                bar.empty()
             added, skipped = save_to_library(refs, selected_id, imported_from="Import")
             st.success(f"Parsed {len(refs)} records · **{added} new saved** · {skipped} filtered.")
             st.rerun()
@@ -1160,8 +1181,10 @@ elif section == "🔗 Extract citations from reviews":
 
         _ws_extract_progress()
         if st.button("Cancel extraction", type="secondary"):
-            clear_extract_job(active_job)
-            st.session_state.pop("ws_extract_job_id", None)
+            # Signal the worker to stop after the current review; the progress
+            # fragment clears the job once it reports done.
+            request_cancel_extract(active_job)
+            st.toast("Cancelling after the current review…", icon="🛑")
             st.rerun()
     else:
         if st.button("Start extraction", type="primary", disabled=len(target_ids) == 0):

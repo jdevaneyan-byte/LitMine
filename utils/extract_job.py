@@ -9,6 +9,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from utils.job_io import is_cancelled as _is_cancelled
+from utils.job_io import patch as _patch_io
+from utils.job_io import read_json as _read_json
+from utils.job_io import request_cancel as _request_cancel
+from utils.job_io import write_atomic as _write_atomic
+
 JOB_DIR = Path("extract_jobs")
 JOB_DIR.mkdir(exist_ok=True)
 
@@ -50,10 +56,12 @@ def get_status(job_id: str) -> dict | None:
     job_file = JOB_DIR / f"{job_id}.json"
     if not job_file.exists():
         return None
-    try:
-        return json.loads(job_file.read_text())
-    except Exception:
-        return None
+    return _read_json(job_file)
+
+
+def request_cancel(job_id: str):
+    """Ask a running extraction to stop after the current review."""
+    _request_cancel(JOB_DIR / f"{job_id}.json")
 
 
 def clear_job(job_id: str):
@@ -67,9 +75,8 @@ def find_active_job(project_id: int) -> str | None:
     project, or None. Used to re-attach the progress UI after a refresh."""
     candidates = []
     for f in JOB_DIR.glob("*.json"):
-        try:
-            data = json.loads(f.read_text())
-        except Exception:
+        data = _read_json(f)
+        if data is None:
             continue
         if data.get("project_id") != project_id:
             continue
@@ -85,16 +92,11 @@ def find_active_job(project_id: int) -> str | None:
 # Internal
 
 def _write(path: Path, data: dict):
-    path.write_text(json.dumps(data))
+    _write_atomic(path, data)
 
 
 def _patch(path: Path, **kwargs):
-    try:
-        data = json.loads(path.read_text())
-        data.update(kwargs)
-        _write(path, data)
-    except Exception:
-        pass
+    _patch_io(path, **kwargs)
 
 
 def _run(
@@ -112,6 +114,14 @@ def _run(
 
     try:
         for i, review_id in enumerate(review_ids):
+            if _is_cancelled(job_file):
+                data = _read_json(job_file) or {}
+                data.setdefault("log", []).append(
+                    f"Cancelled by user after {i} of {len(review_ids)} reviews."
+                )
+                data["done"] = True
+                _write(job_file, data)
+                return
             session = new_session()
             try:
                 review = session.get(CuratedReview, review_id)
