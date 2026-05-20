@@ -22,6 +22,11 @@ const TYPE_COLOR: Record<string, string> = {
 };
 const DIM = "rgba(120,130,150,0.12)";
 const SELECTED_COLOR = "#ffffff";
+const ROAD_COLOR = "#f59e0b"; // amber "road" for the path you've travelled
+
+function ekey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
 
 interface FGNode extends GraphNode {
   raw: GraphNode;
@@ -43,7 +48,10 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [maxNodes, setMaxNodes] = useState(120);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState<Set<string>>(new Set());
+  // Persistent "road": nodes visited and edges travelled, in order.
+  const [trail, setTrail] = useState<string[]>([]);
+  const [pathNodes, setPathNodes] = useState<Set<string>>(new Set());
+  const [pathEdges, setPathEdges] = useState<Set<string>>(new Set());
 
   const fgRef = useRef<{ cameraPosition: (p: object, t: object, ms: number) => void; zoomToFit: (ms?: number, px?: number) => void } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -63,7 +71,9 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
     setLoading(true);
     setError(null);
     setSelectedId(null);
-    setHighlight(new Set());
+    setTrail([]);
+    setPathNodes(new Set());
+    setPathEdges(new Set());
     getNetwork(projectId, mode)
       .then(setNet)
       .catch((e) => setError(String(e)))
@@ -117,15 +127,8 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
     return { nodes: fnodes, links: finalLinks, adjacency: adj, nodeById: byId };
   }, [net, mode, maxNodes]);
 
-  const selectNode = useCallback(
-    (id: string | null) => {
-      setSelectedId(id);
-      if (id == null) {
-        setHighlight(new Set());
-        return;
-      }
-      const neighbors = adjacency.get(id) ?? new Set<string>();
-      setHighlight(new Set([id, ...neighbors]));
+  const focusCamera = useCallback(
+    (id: string) => {
       const node = nodes.find((n) => n.id === id) as unknown as { x?: number; y?: number; z?: number };
       if (node?.x != null && fgRef.current) {
         const r = Math.hypot(node.x || 1, node.y || 1, node.z || 1);
@@ -137,10 +140,47 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
         );
       }
     },
-    [adjacency, nodes],
+    [nodes],
   );
 
-  const active = highlight.size > 0;
+  // Move focus to a node. If we step to a node adjacent to where we were, the
+  // edge between them becomes part of the persistent "road".
+  const selectNode = useCallback(
+    (id: string | null) => {
+      if (id == null) {
+        setSelectedId(null);
+        return;
+      }
+      setSelectedId((from) => {
+        if (from && from !== id && adjacency.get(from)?.has(id)) {
+          setPathEdges((prev) => new Set(prev).add(ekey(from, id)));
+        }
+        setPathNodes((prev) => {
+          const next = new Set(prev);
+          if (from) next.add(from);
+          next.add(id);
+          return next;
+        });
+        setTrail((prev) => (prev[prev.length - 1] === id ? prev : [...prev, id]));
+        return id;
+      });
+      focusCamera(id);
+    },
+    [adjacency, focusCamera],
+  );
+
+  const resetTrail = useCallback(() => {
+    setSelectedId(null);
+    setTrail([]);
+    setPathNodes(new Set());
+    setPathEdges(new Set());
+  }, []);
+
+  const active = selectedId != null || pathNodes.size > 0;
+  const currentNeighbors = useMemo(
+    () => (selectedId ? adjacency.get(selectedId) ?? new Set<string>() : new Set<string>()),
+    [selectedId, adjacency],
+  );
   const neighborList = useMemo(() => {
     if (!selectedId) return [];
     const ids = [...(adjacency.get(selectedId) ?? [])];
@@ -173,13 +213,44 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
           <input type="range" min={40} max={400} step={20} value={maxNodes} onChange={(e) => setMaxNodes(Number(e.target.value))} />
           <span className="tabular-nums">{maxNodes}</span>
         </label>
+        <button
+          className="btn"
+          onClick={resetTrail}
+          disabled={trail.length === 0 && !selectedId}
+          title="Clear the path you've travelled"
+        >
+          Reset trail
+        </button>
         {net && (
           <span className="ml-auto text-xs text-[var(--muted)]">
             {nodes.length} nodes · {links.length} edges
           </span>
         )}
       </div>
-      <p className="mb-3 text-xs text-[var(--muted)]">{MODES.find((m) => m.key === mode)?.purpose}</p>
+      <p className="mb-2 text-xs text-[var(--muted)]">{MODES.find((m) => m.key === mode)?.purpose}</p>
+
+      {trail.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border bg-[var(--surface)] px-3 py-2 text-xs">
+          <span className="mr-1 font-semibold uppercase tracking-wide text-[var(--muted)]">Trail:</span>
+          {trail.map((id, i) => {
+            const n = nodeById.get(id);
+            return (
+              <span key={`${id}-${i}`} className="flex items-center gap-1">
+                {i > 0 && <span className="text-[var(--muted)]">→</span>}
+                <button
+                  onClick={() => selectNode(id)}
+                  className={`max-w-[180px] truncate rounded px-1.5 py-0.5 ${
+                    id === selectedId ? "bg-[var(--primary-weak)] font-medium text-[var(--primary)]" : "hover:bg-[var(--surface-2)]"
+                  }`}
+                  title={n?.label}
+                >
+                  {n?.label ?? id}
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[230px_minmax(0,1fr)_320px]">
         {/* Left: ranked list */}
@@ -233,13 +304,16 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
                 const node = n as FGNode;
                 if (!active) return TYPE_COLOR[node.type] ?? "#94a3b8";
                 if (node.id === selectedId) return SELECTED_COLOR;
-                if (highlight.has(node.id)) return TYPE_COLOR[node.type] ?? "#94a3b8";
+                if (currentNeighbors.has(node.id)) return TYPE_COLOR[node.type] ?? "#94a3b8";
+                if (pathNodes.has(node.id)) return ROAD_COLOR; // visited — part of the road
                 return DIM;
               }}
               nodeVal={(n: object) => {
                 const node = n as FGNode;
                 const base = 1 + Math.min(30, node.weight);
-                return node.id === selectedId ? base * 1.8 : base;
+                if (node.id === selectedId) return base * 1.9;
+                if (pathNodes.has(node.id)) return base * 1.3;
+                return base;
               }}
               nodeOpacity={1}
               nodeResolution={14}
@@ -247,13 +321,17 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
                 const link = l as FGLink;
                 const s = endId(link.source);
                 const t = endId(link.target);
+                if (pathEdges.has(ekey(s, t))) return ROAD_COLOR; // the road persists
                 if (active && (s === selectedId || t === selectedId)) return "rgba(165,180,252,0.95)";
                 if (active) return "rgba(80,90,110,0.05)";
                 return "rgba(148,163,184,0.22)";
               }}
               linkWidth={(l: object) => {
                 const link = l as FGLink;
-                return active && (endId(link.source) === selectedId || endId(link.target) === selectedId) ? 1.4 : 0.4;
+                const s = endId(link.source);
+                const t = endId(link.target);
+                if (pathEdges.has(ekey(s, t))) return 2.6; // road is the boldest
+                return active && (s === selectedId || t === selectedId) ? 1.4 : 0.4;
               }}
               warmupTicks={50}
               cooldownTicks={90}
