@@ -11,6 +11,7 @@ Run locally:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -70,6 +71,7 @@ def _article_dict(a: CollectedArticle) -> dict:
         "abstract": a.abstract,
         "source": a.source,
         "pub_type": a.pub_type,
+        "category": a.category or "Unclassified",
         "venue": a.venue or "",
         "citation_count": a.citation_count,
         "screening_status": a.screening_status or "unscreened",
@@ -77,6 +79,8 @@ def _article_dict(a: CollectedArticle) -> dict:
         "notes": a.notes or "",
         "decision_reason": a.decision_reason or "",
         "is_deleted": bool(a.is_deleted),
+        "references_extracted": bool(a.references_extracted),
+        "references_count": a.references_count or 0,
         "edited_by_user": bool((a.notes or "").startswith("[edited]") or (a.imported_from == "manual-edit")),
     }
 
@@ -131,6 +135,7 @@ def list_articles(
     decision: str = "all",
     year_min: int = 0,
     pub_type: str = "all",
+    category: str = "all",
     journal: str = "",
     view: str = "active",  # "active" (default) hides trash; "trash" shows only deleted
     sort: str = "year",
@@ -156,6 +161,11 @@ def list_articles(
             query = query.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= year_min)  # noqa: E711
         if pub_type != "all":
             query = query.filter(CollectedArticle.pub_type == pub_type)
+        if category != "all":
+            if category == "Unclassified":
+                query = query.filter((CollectedArticle.category == "") | (CollectedArticle.category == None) | (CollectedArticle.category == "Unclassified"))  # noqa: E711
+            else:
+                query = query.filter(CollectedArticle.category == category)
         if sort == "citations":
             ordered = query.order_by(CollectedArticle.citation_count.desc().nullslast(), CollectedArticle.id.desc())
         else:
@@ -175,19 +185,55 @@ def get_article(article_id: int, with_references: bool = False):
         if not a:
             raise HTTPException(404, "article not found")
         data = _article_dict(a)
+        stored = a.references_json
     finally:
         session.close()
 
-    if with_references and data.get("doi"):
-        # Fetch the paper's reference list on demand (Semantic Scholar + Crossref).
-        try:
-            from api.references import fetch_references
-
-            data["references"] = fetch_references(data["doi"])
-        except Exception as exc:
+    if with_references:
+        # Prefer already-extracted (persisted) references; never re-fetch.
+        if stored:
+            try:
+                data["references"] = json.loads(stored)
+            except Exception:
+                data["references"] = []
+        else:
             data["references"] = []
-            data["references_error"] = str(exc)
     return data
+
+
+@app.post("/api/articles/{article_id}/extract")
+def extract_references(article_id: int):
+    """Fetch this article's reference list once and persist it, so the article
+    becomes a mined 'seed' (works for any article, not just curated reviews)."""
+    session = new_session()
+    try:
+        a = session.get(CollectedArticle, article_id)
+        if not a:
+            raise HTTPException(404, "article not found")
+        doi = (a.doi or "").strip()
+    finally:
+        session.close()
+
+    if not doi:
+        raise HTTPException(400, "this article has no DOI to extract references from")
+
+    from api.references import fetch_references, ReferenceFetchError
+
+    try:
+        refs = fetch_references(doi)
+    except ReferenceFetchError as exc:
+        raise HTTPException(502, f"could not fetch references: {exc}")
+
+    session = new_session()
+    try:
+        a = session.get(CollectedArticle, article_id)
+        a.references_json = json.dumps(refs)
+        a.references_extracted = True
+        a.references_count = len(refs)
+        session.commit()
+        return {"ok": True, "count": len(refs), "references": refs}
+    finally:
+        session.close()
 
 
 @app.patch("/api/articles/{article_id}")

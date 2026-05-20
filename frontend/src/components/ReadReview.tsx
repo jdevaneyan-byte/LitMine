@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { editArticle, getArticle, listArticles, trashArticle } from "@/lib/api";
+import { editArticle, extractReferences, getArticle, listArticles, trashArticle } from "@/lib/api";
 import type { Article } from "@/lib/types";
 
 const DECISIONS = ["unscreened", "include", "maybe", "exclude"] as const;
@@ -45,7 +45,8 @@ export default function ReadReview({ projectId }: { projectId: number }) {
     if (selectedId === null) return;
     setLoadingDetail(true);
     setEditing(false);
-    getArticle(selectedId, false)
+    // Pass with_references=true so persisted (already-extracted) refs show up.
+    getArticle(selectedId, true)
       .then((a) => {
         setDetail(a);
         setDraft(a);
@@ -81,12 +82,17 @@ export default function ReadReview({ projectId }: { projectId: number }) {
     setList((prev) => prev.map((a) => (a.id === article.id ? { ...a, title: article.title } : a)));
   }, [detail, draft]);
 
-  const loadRefs = useCallback(async () => {
+  // Extract once and persist — makes this article a mined "seed".
+  const extract = useCallback(async () => {
     if (!detail) return;
     setLoadingRefs(true);
     try {
-      const full = await getArticle(detail.id, true);
-      setDetail((d) => (d ? { ...d, references: full.references, references_error: full.references_error } : d));
+      const res = await extractReferences(detail.id);
+      setDetail((d) =>
+        d ? { ...d, references: res.references, references_extracted: true, references_count: res.count } : d,
+      );
+    } catch (e) {
+      setDetail((d) => (d ? { ...d, references_error: String(e) } : d));
     } finally {
       setLoadingRefs(false);
     }
@@ -153,7 +159,7 @@ export default function ReadReview({ projectId }: { projectId: number }) {
               <div className="flex flex-wrap items-center gap-2">
                 <DecisionBadge value={detail.screening_status} />
                 {detail.edited_by_user && <span className="badge badge-edited">user-edited</span>}
-                {detail.pub_type && <span className="badge">{detail.pub_type}</span>}
+                {detail.category && <span className="badge">{detail.category}</span>}
                 <span className="badge">{detail.source}</span>
               </div>
               <div className="flex gap-2">
@@ -197,13 +203,19 @@ export default function ReadReview({ projectId }: { projectId: number }) {
             <div className="mt-5 border-t pt-4">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  References {detail.references ? `(${detail.references.length})` : ""}
+                  References{" "}
+                  {detail.references_extracted ? `(${detail.references_count})` : ""}
+                  {detail.references_extracted && <span className="badge ml-2">extracted ✓</span>}
                 </div>
-                {!detail.references && (
-                  <button className="btn" onClick={loadRefs} disabled={loadingRefs || !detail.doi}>
-                    {loadingRefs ? "Loading…" : detail.doi ? "Load references" : "No DOI"}
-                  </button>
-                )}
+                <button className="btn" onClick={extract} disabled={loadingRefs || !detail.doi}>
+                  {loadingRefs
+                    ? "Extracting…"
+                    : !detail.doi
+                    ? "No DOI"
+                    : detail.references_extracted
+                    ? "Re-extract"
+                    : "Extract references"}
+                </button>
               </div>
               {detail.references_error && (
                 <div className="text-xs text-[#b91c1c]">{detail.references_error}</div>

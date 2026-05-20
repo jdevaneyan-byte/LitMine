@@ -27,6 +27,7 @@ export interface Article {
   abstract: string | null;
   source: string;
   pub_type: string | null;
+  category: string;
   venue: string;
   citation_count: number | null;
   screening_status: string;
@@ -34,6 +35,8 @@ export interface Article {
   notes: string;
   decision_reason: string;
   is_deleted: boolean;
+  references_extracted: boolean;
+  references_count: number;
   edited_by_user: boolean;
   references?: Reference[];
   references_error?: string;

@@ -72,19 +72,32 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   );
 }
 
+const CATEGORIES = [
+  "all",
+  "Review",
+  "Research article",
+  "Conference",
+  "Book/Chapter",
+  "Preprint",
+  "Editorial/Note",
+  "Dataset",
+  "Unclassified",
+];
+
 function LibraryTab({ projectId }: { projectId: number }) {
   const [items, setItems] = useState<Article[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [decision, setDecision] = useState("all");
+  const [category, setCategory] = useState("all");
   const [sort, setSort] = useState<"year" | "citations">("year");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setLoading(true);
     const handle = setTimeout(() => {
-      listArticles(projectId, { q, decision, sort, limit: PAGE, offset: page * PAGE })
+      listArticles(projectId, { q, decision, category, sort, limit: PAGE, offset: page * PAGE })
         .then((r) => {
           setItems(r.items);
           setTotal(r.total);
@@ -92,7 +105,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
         .finally(() => setLoading(false));
     }, 250); // debounce the keyword box
     return () => clearTimeout(handle);
-  }, [projectId, q, decision, sort, page]);
+  }, [projectId, q, decision, category, sort, page]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE));
 
@@ -119,6 +132,21 @@ function LibraryTab({ projectId }: { projectId: number }) {
           {DECISIONS.map((d) => (
             <option key={d} value={d}>
               {d === "all" ? "All decisions" : d}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input max-w-[180px]"
+          value={category}
+          onChange={(e) => {
+            setPage(0);
+            setCategory(e.target.value);
+          }}
+          title="Filter by publication type"
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c === "all" ? "All types" : c}
             </option>
           ))}
         </select>
@@ -173,7 +201,7 @@ function LibraryTab({ projectId }: { projectId: number }) {
                   <td className="px-3 py-2 text-right tabular-nums">
                     {a.citation_count != null ? a.citation_count.toLocaleString() : <span className="text-[var(--muted)]">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.pub_type || ""}</td>
+                  <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.category || "Unclassified"}</td>
                   <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.source}</td>
                   <td className="px-3 py-2">
                     <DecisionBadge value={a.screening_status} />

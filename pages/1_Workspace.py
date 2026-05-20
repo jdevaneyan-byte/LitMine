@@ -44,6 +44,7 @@ from utils.extract_job import (
 )
 from utils.import_refs import parse_reference_upload
 from utils.keybinds import bind_keys
+from utils.pub_category import categorize
 from utils.queue_store import load_queues, save_ca_queue
 from utils.search_job import (
     clear_job as clear_search_job,
@@ -224,6 +225,7 @@ def save_to_library(
                     source=imported_from or art.get("source", "Import"),
                     url=art.get("url", ""),
                     pub_type=art.get("pub_type", ""),
+                    category=categorize(art.get("pub_type"), art.get("source"), title),
                     venue=art.get("venue", ""),
                     citation_count=art.get("citation_count"),
                     screening_status="unscreened",

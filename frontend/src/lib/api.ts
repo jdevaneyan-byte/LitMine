@@ -5,6 +5,7 @@ import type {
   NetworkMode,
   Project,
   ProjectSummary,
+  Reference,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -28,6 +29,7 @@ export interface ArticleFilters {
   decision?: string;
   year_min?: number;
   pub_type?: string;
+  category?: string;
   journal?: string;
   view?: "active" | "trash";
   sort?: "year" | "citations";
@@ -41,6 +43,7 @@ export async function listArticles(projectId: number, f: ArticleFilters = {}): P
   if (f.decision && f.decision !== "all") params.set("decision", f.decision);
   if (f.year_min) params.set("year_min", String(f.year_min));
   if (f.pub_type && f.pub_type !== "all") params.set("pub_type", f.pub_type);
+  if (f.category && f.category !== "all") params.set("category", f.category);
   if (f.journal) params.set("journal", f.journal);
   if (f.view) params.set("view", f.view);
   if (f.sort) params.set("sort", f.sort);
@@ -72,6 +75,12 @@ export function emptyTrash(projectId: number) {
 
 export async function getArticle(id: number, withReferences = false): Promise<Article> {
   return get<Article>(`/api/articles/${id}?with_references=${withReferences}`);
+}
+
+export async function extractReferences(id: number): Promise<{ ok: boolean; count: number; references: Reference[] }> {
+  const res = await fetch(`${BASE}/api/articles/${id}/extract`, { method: "POST" });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
 }
 
 export async function editArticle(id: number, patch: Partial<Article>): Promise<{ ok: boolean; changed: string[]; article: Article }> {

@@ -96,9 +96,14 @@ class CollectedArticle(Base):
     year = Column(Integer, nullable=True)
     source = Column(String(50), nullable=False)
     url = Column(String(1000), nullable=True)
-    pub_type = Column(String(60), default="")  # normalized publication type from the source
+    pub_type = Column(String(60), default="")  # raw publication type from the source
+    category = Column(String(30), default="")  # normalized taxonomy (see utils.pub_category)
     venue = Column(String(500), default="")  # journal / venue name
     citation_count = Column(Integer, nullable=True)  # global citations (OpenAlex/S2)
+    # Persisted reference extraction (works for any article, not just curated reviews).
+    references_json = Column(Text, default="")
+    references_extracted = Column(Boolean, default=False)
+    references_count = Column(Integer, default=0)
     notes = Column(Text, default="")
     tags = Column(String(500), default="")
     screening_status = Column(String(20), default="unscreened")
@@ -220,6 +225,10 @@ def init_db():
         ("collected_articles", "venue", "VARCHAR(500) DEFAULT ''"),
         ("collected_articles", "is_deleted", "BOOLEAN DEFAULT 0"),
         ("collected_articles", "deleted_at", "DATETIME"),
+        ("collected_articles", "category", "VARCHAR(30) DEFAULT ''"),
+        ("collected_articles", "references_json", "TEXT DEFAULT ''"),
+        ("collected_articles", "references_extracted", "BOOLEAN DEFAULT 0"),
+        ("collected_articles", "references_count", "INTEGER DEFAULT 0"),
         ("cited_articles", "is_book", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:
