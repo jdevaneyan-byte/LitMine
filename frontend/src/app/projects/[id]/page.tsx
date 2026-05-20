@@ -4,6 +4,8 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { getProject, listArticles } from "@/lib/api";
 import type { Article, Project } from "@/lib/types";
+import ReadReview from "@/components/ReadReview";
+import NetworkMap from "@/components/NetworkMap";
 
 const DECISIONS = ["all", "unscreened", "include", "maybe", "exclude"];
 const PAGE = 50;
@@ -61,12 +63,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       </div>
 
       {tab === "library" && <LibraryTab projectId={projectId} />}
-      {tab === "read" && (
-        <Placeholder text="Reading & review (2-pane metadata + manual edit) — Phase 3, coming next." />
-      )}
-      {tab === "network" && (
-        <Placeholder text="Network map (citation / author / journal) — Phase 4, coming next." />
-      )}
+      {tab === "read" && <ReadReview projectId={projectId} />}
+      {tab === "network" && <NetworkMap projectId={projectId} />}
     </div>
   );
 }
@@ -193,8 +191,4 @@ function DecisionBadge({ value }: { value: string }) {
   const cls =
     v === "include" ? "badge-include" : v === "maybe" ? "badge-maybe" : v === "exclude" ? "badge-exclude" : "";
   return <span className={`badge ${cls}`}>{v}</span>;
-}
-
-function Placeholder({ text }: { text: string }) {
-  return <div className="card p-10 text-center text-sm text-[var(--muted)]">{text}</div>;
 }
