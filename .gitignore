@@ -16,6 +16,7 @@ litmine.db
 streamlit.log
 search_jobs/
 extract_jobs/
+enrich_jobs/
 uploaded_pdfs/
 # Personal one-off helper scripts and sample exports — never commit.
 _load_queue.py

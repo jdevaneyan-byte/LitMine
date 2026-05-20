@@ -324,6 +324,50 @@ def empty_trash(project_id: int):
         session.close()
 
 
+# Data quality (completeness audit + multi-source gap-fill worker)
+
+@app.get("/api/projects/{project_id}/completeness")
+def completeness(project_id: int):
+    from utils.completeness import audit_project
+
+    return audit_project(project_id)
+
+
+@app.post("/api/projects/{project_id}/enrich")
+def start_enrich(project_id: int):
+    from utils.enrich_job import find_active_job, start_enrich_job
+
+    existing = find_active_job(project_id)
+    if existing:
+        return {"job_id": existing, "already_running": True}
+    return {"job_id": start_enrich_job(project_id), "already_running": False}
+
+
+@app.get("/api/enrich/{job_id}")
+def enrich_status(job_id: str):
+    from utils.enrich_job import get_status
+
+    s = get_status(job_id)
+    if s is None:
+        raise HTTPException(404, "job not found")
+    return s
+
+
+@app.post("/api/enrich/{job_id}/cancel")
+def enrich_cancel(job_id: str):
+    from utils.enrich_job import request_cancel
+
+    request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/enrich/active")
+def enrich_active(project_id: int):
+    from utils.enrich_job import find_active_job
+
+    return {"job_id": find_active_job(project_id)}
+
+
 # Network
 
 @app.get("/api/projects/{project_id}/network")

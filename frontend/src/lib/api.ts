@@ -52,10 +52,10 @@ export async function listArticles(projectId: number, f: ArticleFilters = {}): P
   return get<ArticlePage>(`/api/projects/${projectId}/articles?${params.toString()}`);
 }
 
-async function post(path: string): Promise<{ ok: boolean }> {
+async function post<T = { ok: boolean }>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: "POST" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export function trashArticle(id: number) {
@@ -95,6 +95,42 @@ export async function editArticle(id: number, patch: Partial<Article>): Promise<
 
 export async function getNetwork(projectId: number, mode: NetworkMode): Promise<Network> {
   return get<Network>(`/api/projects/${projectId}/network?mode=${mode}`);
+}
+
+export interface Completeness {
+  total: number;
+  complete: number;
+  incomplete: number;
+  fixable_with_doi: number;
+  incomplete_no_doi: number;
+  missing_by_field: Record<string, number>;
+}
+export interface EnrichStatus {
+  job_id: string;
+  total: number;
+  completed: number;
+  current: string;
+  filled_fields: number;
+  records_improved: number;
+  log: string[];
+  done: boolean;
+  error: string | null;
+}
+
+export function getCompleteness(projectId: number): Promise<Completeness> {
+  return get<Completeness>(`/api/projects/${projectId}/completeness`);
+}
+export function startEnrich(projectId: number): Promise<{ job_id: string; already_running: boolean }> {
+  return post<{ job_id: string; already_running: boolean }>(`/api/projects/${projectId}/enrich`);
+}
+export function getEnrichStatus(jobId: string): Promise<EnrichStatus> {
+  return get<EnrichStatus>(`/api/enrich/${jobId}`);
+}
+export function cancelEnrich(jobId: string) {
+  return post(`/api/enrich/${jobId}/cancel`);
+}
+export function findActiveEnrich(projectId: number): Promise<{ job_id: string | null }> {
+  return get<{ job_id: string | null }>(`/api/projects/${projectId}/enrich/active`);
 }
 
 export { BASE as API_BASE };

@@ -7,6 +7,7 @@ import type { Article, Project } from "@/lib/types";
 import ReadReview from "@/components/ReadReview";
 import NetworkMap from "@/components/NetworkMap";
 import Trash from "@/components/Trash";
+import DataQuality from "@/components/DataQuality";
 
 const DECISIONS = ["all", "unscreened", "include", "maybe", "exclude"];
 const PAGE = 50;
@@ -16,7 +17,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const projectId = Number(id);
 
   const [project, setProject] = useState<Project | null>(null);
-  const [tab, setTab] = useState<"library" | "read" | "network" | "trash">("library");
+  const [tab, setTab] = useState<"library" | "read" | "network" | "quality" | "trash">("library");
 
   useEffect(() => {
     getProject(projectId).then(setProject).catch(() => setProject(null));
@@ -48,6 +49,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           ["library", "Library"],
           ["read", "Read & review"],
           ["network", "Network map"],
+          ["quality", "Data quality"],
           ["trash", "Trash"],
         ] as const).map(([key, label]) => (
           <button
@@ -67,6 +69,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       {tab === "library" && <LibraryTab projectId={projectId} />}
       {tab === "read" && <ReadReview projectId={projectId} />}
       {tab === "network" && <NetworkMap projectId={projectId} />}
+      {tab === "quality" && <DataQuality projectId={projectId} />}
       {tab === "trash" && <Trash projectId={projectId} />}
     </div>
   );
