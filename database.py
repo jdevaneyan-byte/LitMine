@@ -20,7 +20,7 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     topic = Column(String(500), nullable=False)
     description = Column(Text, default="")
-    literature_type = Column(String(20), default="Both")  # Review | Research | Both
+    literature_type = Column(String(40), default="Review + research articles")  # review / research / both
     review_type = Column(String(100), default="Narrative review")
     inclusion_criteria = Column(Text, default="")
     exclusion_criteria = Column(Text, default="")
@@ -198,7 +198,7 @@ def init_db():
     Base.metadata.create_all(engine)
     # Lightweight migrations for existing local SQLite databases.
     migrations = [
-        ("projects", "literature_type", "VARCHAR(20) DEFAULT 'Both'"),
+        ("projects", "literature_type", "VARCHAR(40) DEFAULT 'Review + research articles'"),
         ("projects", "review_type", "VARCHAR(100) DEFAULT 'Narrative review'"),
         ("projects", "inclusion_criteria", "TEXT DEFAULT ''"),
         ("projects", "exclusion_criteria", "TEXT DEFAULT ''"),
@@ -244,6 +244,22 @@ def init_db():
             conn.commit()
         except Exception:
             pass
+
+        # Relabel legacy literature_type values to the article-centric wording
+        # (the tool now serves review AND research articles, not just reviews).
+        for old, new in [
+            ("Review papers", "Review articles"),
+            ("Research papers", "Research articles"),
+            ("Both", "Review + research articles"),
+        ]:
+            try:
+                conn.execute(
+                    _sa_text("UPDATE projects SET literature_type = :new WHERE literature_type = :old"),
+                    {"new": new, "old": old},
+                )
+                conn.commit()
+            except Exception:
+                pass
 
         # Partial unique indexes prevent the same DOI being saved twice within
         # one project, while still allowing many rows with no DOI (empty/NULL).

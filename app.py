@@ -1,8 +1,8 @@
 """Home page — project list + create a new project.
 
-Simplified for first-time users: just a name, a type (Review papers / Research
-papers / Both), and an optional description. Everything else is configured
-inside the project workspace.
+Simplified for first-time users: just a name, a type (Review articles /
+Research articles / both), and an optional description. Everything else is
+configured inside the project workspace.
 """
 
 from datetime import datetime, timezone
@@ -28,12 +28,12 @@ st.set_page_config(
 
 init_db()
 
-LITERATURE_TYPES = ["Both", "Review papers", "Research papers"]
+LITERATURE_TYPES = ["Review + research articles", "Review articles", "Research articles"]
 LITERATURE_TYPE_HELP = (
     "What kind of literature you mainly want to find.\n\n"
-    "• **Review papers** — focused on review / overview articles\n"
-    "• **Research papers** — focused on primary research articles\n"
-    "• **Both** — search for both"
+    "• **Review articles** — review / overview articles\n"
+    "• **Research articles** — primary research articles\n"
+    "• **Review + research articles** — search for both"
 )
 
 
@@ -129,7 +129,7 @@ try:
                 "id": p.id,
                 "name": p.name,
                 "topic": p.topic,
-                "literature_type": p.literature_type or "Both",
+                "literature_type": p.literature_type or "Review + research articles",
                 "description": p.description or "",
                 "collected": session.query(CollectedArticle).filter_by(project_id=p.id).count(),
                 "landscape": session.query(LandscapeArticle).filter_by(project_id=p.id).count(),

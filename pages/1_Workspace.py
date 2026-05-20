@@ -120,7 +120,7 @@ try:
     project_name = project.name
     project_topic = project.topic or ""
     project_description = project.description or ""
-    literature_type = project.literature_type or "Both"
+    literature_type = project.literature_type or "Review + research articles"
     library_count = session.query(CollectedArticle).filter_by(project_id=selected_id).count()
     curated_count = session.query(CuratedReview).filter_by(project_id=selected_id).count()
     cited_count = session.query(CitedArticle).filter_by(project_id=selected_id).count()
@@ -285,15 +285,15 @@ def import_curated_reviews(project_id: int, rows: list[dict], replace: bool) -> 
 
 def derive_search_mode(literature_type: str, override: str) -> str:
     """Return 'reviews', 'articles', or 'both' for the search runner."""
-    if override == "Research papers":
+    if override == "Research articles":
         return "articles"
-    if override == "Review papers":
+    if override == "Review articles":
         return "reviews"
-    if literature_type == "Review papers":
+    if literature_type == "Review articles":
         return "reviews"
-    if literature_type == "Research papers":
+    if literature_type == "Research articles":
         return "articles"
-    return "both"  # Both → research articles + reviews across all sources.
+    return "both"  # default → research articles + reviews across all sources.
 
 
 # Section 1: Library
@@ -824,12 +824,12 @@ elif section == "🔍 Search the web":
 
     type_override = st.radio(
         "Search for",
-        ["Use project setting", "Review papers", "Research papers"],
+        ["Use project setting", "Review articles", "Research articles"],
         horizontal=True,
         help=(
             "Override the project's literature type just for this search.\n\n"
-            "Reviews → filtered to review/overview articles.\n"
-            "Research → primary research articles."
+            "Review articles → filtered to review/overview articles.\n"
+            "Research articles → primary research articles."
         ),
     )
     search_mode = derive_search_mode(
@@ -1361,11 +1361,9 @@ elif section == "⚙ Project settings":
         p = session.get(Project, selected_id)
         with st.form("ws_settings"):
             new_name = st.text_input("Name", value=p.name)
-            new_type = st.selectbox(
-                "Looking for",
-                ["Both", "Review papers", "Research papers"],
-                index=["Both", "Review papers", "Research papers"].index(p.literature_type or "Both"),
-            )
+            _types = ["Review + research articles", "Review articles", "Research articles"]
+            _current = p.literature_type if p.literature_type in _types else "Review + research articles"
+            new_type = st.selectbox("Looking for", _types, index=_types.index(_current))
             new_topic = st.text_input("Topic / main keyword", value=p.topic or "")
             new_desc = st.text_area("Description", value=p.description or "", height=80)
             if st.form_submit_button("Save", type="primary"):

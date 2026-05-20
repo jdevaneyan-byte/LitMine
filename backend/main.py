@@ -93,7 +93,7 @@ def list_projects():
                 "id": p.id,
                 "name": p.name,
                 "topic": p.topic,
-                "literature_type": p.literature_type or "Both",
+                "literature_type": p.literature_type or "Review + research articles",
                 "description": p.description or "",
                 "library": session.query(CollectedArticle).filter_by(project_id=p.id).count(),
                 "curated_reviews": session.query(CuratedReview).filter_by(project_id=p.id).count(),
@@ -115,7 +115,7 @@ def get_project(project_id: int):
             "id": p.id,
             "name": p.name,
             "topic": p.topic,
-            "literature_type": p.literature_type or "Both",
+            "literature_type": p.literature_type or "Review + research articles",
             "description": p.description or "",
         }
     finally:
@@ -204,7 +204,6 @@ def edit_article(article_id: int, edit: ArticleEdit):
                 setattr(a, field, value)
                 changed.append(field)
         if changed:
-            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
             note = a.notes or ""
             if not note.startswith("[edited]"):
                 a.notes = f"[edited] {note}".strip()
