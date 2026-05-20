@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #fbfcfe;
+  --border: #e4e7ec;
+  --text: #101828;
+  --muted: #667085;
+  --primary: #4f46e5;
+  --primary-weak: #eef2ff;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 8px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #b4bcc8; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 9px; font-size: 13px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  cursor: pointer; transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--surface-2); }
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-primary:hover { background: #4338ca; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--primary-weak); }
+
+.input {
+  width: 100%; padding: 8px 11px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface); font-size: 13px; color: var(--text);
+  outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-weak); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: #f2f4f7; color: #475467; white-space: nowrap;
+}
+.badge-include { background: #dcfce7; color: #15803d; }
+.badge-maybe { background: #fef3c7; color: #b45309; }
+.badge-exclude { background: #fee2e2; color: #b91c1c; }
+.badge-edited { background: #ede9fe; color: #6d28d9; }
