@@ -1,9 +1,9 @@
-"""Phase: Extract References from curated review papers.
+﻿"""Phase: Extract References from curated review papers.
 
 Workflow:
 1. Upload an Excel master list of curated review papers (one row per review,
    must include a Title and DOI column). Each review gets a stable ID.
-2. Click "Extract References" — the app fetches each review's reference list
+2. Click "Extract References" â€” the app fetches each review's reference list
    from Semantic Scholar (with Crossref fallback) in a background thread.
 3. References are filtered: research papers older than the year floor are
    rejected. Reviews are flagged so the user can decide whether to chase them.
@@ -91,7 +91,7 @@ def _clear_curated(project_id: int):
 # Sidebar - active project
 
 def select_project() -> int:
-    st.sidebar.title("Literature Collector")
+    st.sidebar.title("LitMine")
     st.sidebar.markdown("---")
     session = new_session()
     try:
@@ -476,5 +476,6 @@ with tab_browse:
                 file_name=f"{project_name}_cited_articles.json",
                 mime="application/json",
             )
+
 
 

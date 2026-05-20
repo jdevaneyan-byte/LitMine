@@ -51,7 +51,7 @@ from utils.search_job import (
     start_job as start_search_job,
 )
 
-st.set_page_config(page_title="Workspace · Literature Collector", page_icon="LC", layout="wide")
+st.set_page_config(page_title="Workspace · LitMine", page_icon="LM", layout="wide")
 init_db()
 
 PAGE_SIZE = 50
@@ -72,7 +72,7 @@ EXCLUSION_REASONS = [
 
 # Sidebar — project picker
 
-st.sidebar.title("Literature Collector")
+st.sidebar.title("LitMine")
 st.sidebar.markdown("---")
 
 session = new_session()

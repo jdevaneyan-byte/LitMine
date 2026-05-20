@@ -1,4 +1,4 @@
-import pandas as pd
+﻿import pandas as pd
 import streamlit as st
 
 from database import Project, init_db, new_session
@@ -7,7 +7,7 @@ from utils.export import articles_to_bibtex, articles_to_csv, articles_to_json, 
 st.set_page_config(page_title="Export", page_icon="EX", layout="wide")
 init_db()
 
-st.sidebar.title("Literature Collector")
+st.sidebar.title("LitMine")
 st.sidebar.markdown("---")
 
 session = new_session()
@@ -131,3 +131,4 @@ st.dataframe(
 
 with st.expander("Project Report Preview"):
     st.markdown(report_data)
+

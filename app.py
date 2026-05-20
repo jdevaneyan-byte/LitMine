@@ -20,8 +20,8 @@ from database import (
 )
 
 st.set_page_config(
-    page_title="Literature Collector",
-    page_icon="LC",
+    page_title="LitMine",
+    page_icon="LM",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -39,7 +39,7 @@ LITERATURE_TYPE_HELP = (
 
 # Sidebar
 
-st.sidebar.title("Literature Collector")
+st.sidebar.title("LitMine")
 st.sidebar.caption("Find, organise and download academic literature for your research group.")
 st.sidebar.markdown("---")
 st.sidebar.markdown(
@@ -51,7 +51,7 @@ st.sidebar.markdown(
 
 # Main
 
-st.title("Literature Collector")
+st.title("LitMine")
 st.markdown(
     "A simple workspace for academic literature: search the web databases "
     "(OpenAlex, PubMed, Semantic Scholar), import your existing reference lists, "

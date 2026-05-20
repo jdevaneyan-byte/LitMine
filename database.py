@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, F
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime, timezone
 
-DB_PATH = "review_collector.db"
+DB_PATH = "litmine.db"
 
 
 class Base(DeclarativeBase):

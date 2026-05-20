@@ -5,8 +5,8 @@ import xml.etree.ElementTree as ET
 from typing import Optional
 
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-TOOL = "ReviewCollector"
-EMAIL = "research@review-collector.app"
+TOOL = "LitMine"
+EMAIL = "research@litmine.app"
 
 
 def _api_key_param() -> dict:

@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -22,7 +22,7 @@ PDF_DIR.mkdir(exist_ok=True)
 
 
 def load_project_selector() -> int:
-    st.sidebar.title("Literature Collector")
+    st.sidebar.title("LitMine")
     st.sidebar.markdown("---")
     session = new_session()
     try:
@@ -406,3 +406,4 @@ with tab_collection:
             if st.button("Next", disabled=page >= total_pages - 1, key="ca_next"):
                 st.session_state.ca_page = page + 1
                 st.rerun()
+

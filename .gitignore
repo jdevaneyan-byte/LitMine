@@ -7,7 +7,7 @@
 .codex/
 
 # User data and runtime files
-review_collector.db
+litmine.db
 *.db
 streamlit.log
 search_jobs/

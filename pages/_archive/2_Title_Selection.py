@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -7,7 +7,7 @@ from database import Project, init_db, new_session
 st.set_page_config(page_title="Title Selection", page_icon="TS", layout="wide")
 init_db()
 
-st.sidebar.title("Literature Collector")
+st.sidebar.title("LitMine")
 st.sidebar.markdown("---")
 
 session = new_session()
@@ -106,3 +106,4 @@ with st.form("title_form"):
 if current_title:
     st.markdown("---")
     st.markdown("Next step: go to Collect Articles to gather and screen primary references.")
+

@@ -1,4 +1,4 @@
-# Contributing to Literature Collector
+# Contributing to LitMine
 
 Thanks for your interest! Bug reports, feature ideas and pull requests are
 all welcome.
@@ -23,8 +23,8 @@ dependencies need a strong case.
 ## Development setup
 
 ```bash
-git clone https://github.com/FILL_IN_USERNAME/literature-collector.git
-cd literature-collector
+git clone https://github.com/jdevaneyan-byte/LitMine.git
+cd LitMine
 python -m venv .venv
 
 # Windows PowerShell

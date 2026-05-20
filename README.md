@@ -1,4 +1,4 @@
-# Literature Collector
+# LitMine
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
@@ -17,9 +17,9 @@ without cloud lock-in. All data lives in a local SQLite file.
 
 ---
 
-## Why Literature Collector
+## Why LitMine
 
-| Existing tool | What it does well | Gap Literature Collector fills |
+| Existing tool | What it does well | Gap LitMine fills |
 |---|---|---|
 | [ASReview](https://github.com/asreview/asreview) | AI-assisted screening of imported references | No search, no citation extraction from reviews |
 | [Rayyan](https://www.rayyan.ai/) | Polished screening UI, multi-rater | Cloud-only; no API search; no citation mining |
@@ -27,7 +27,7 @@ without cloud lock-in. All data lives in a local SQLite file.
 | [paper-search-mcp](https://github.com/openags/paper-search-mcp) | Multi-source paper search via CLI | No UI, no screening, no project model |
 | [openalexR](https://github.com/ropensci/openalexR) | Powerful OpenAlex queries from R | Single source, R only |
 
-**Literature Collector's hook**: a one-stop **search → import → extract
+**LitMine's hook**: a one-stop **search → import → extract
 citations from reviews → screen → export** pipeline that runs on a laptop,
 written in Python/Streamlit so it's instantly self-hostable.
 
@@ -64,8 +64,8 @@ written in Python/Streamlit so it's instantly self-hostable.
 Python **3.9 or newer**. Tested on Windows 11 and macOS.
 
 ```bash
-git clone https://github.com/FILL_IN_USERNAME/literature-collector.git
-cd literature-collector
+git clone https://github.com/jdevaneyan-byte/LitMine.git
+cd LitMine
 python -m venv .venv
 
 # Windows PowerShell
@@ -149,7 +149,7 @@ Open <http://localhost:8501>.
 ## Project layout
 
 ```
-literature-collector/
+LitMine/
 ├── app.py                       # Home: project list and creator
 ├── pages/
 │   ├── 1_Workspace.py           # All in-project actions
@@ -209,7 +209,7 @@ independent of it.
 
 ## How to cite
 
-If you use Literature Collector in published work, please cite the JOSS
+If you use LitMine in published work, please cite the JOSS
 paper (forthcoming) or the repository via the `CITATION.cff` file.
 
 ---

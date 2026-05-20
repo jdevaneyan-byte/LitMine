@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 BASE_URL = "https://api.openalex.org"
-MAILTO = "research@review-collector.app"
+MAILTO = "research@litmine.app"
 FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id"
 
 

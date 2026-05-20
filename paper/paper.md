@@ -1,5 +1,5 @@
 ---
-title: 'Literature Collector: a local-first workspace for multi-database literature search, citation extraction, and PRISMA-style screening'
+title: 'LitMine: a local-first workspace for multi-database literature search, citation extraction, and PRISMA-style screening'
 tags:
   - Python
   - Streamlit
@@ -29,7 +29,7 @@ day-to-day workflow is fragmented. Searching multiple bibliographic
 databases, harmonising their metadata, identifying which papers are cited by
 a curated set of review articles, and screening the resulting set to a
 manageable shortlist typically requires switching between several
-single-purpose tools. **Literature Collector** is an open-source Python
+single-purpose tools. **LitMine** is an open-source Python
 application that unifies these steps into a single local-first workspace.
 It searches OpenAlex [@priem2022openalex], PubMed [@sayers2021ncbi],
 Semantic Scholar [@kinney2023semanticscholar] and arXiv from one screen,
@@ -64,7 +64,7 @@ curated set of seed papers (reviews or key primary articles) and pulls
 back everything they cite, and (iii) supports a reproducible screening
 pass — without forcing the data into a
 cloud service that may be incompatible with institutional data policies.
-Literature Collector addresses this gap by combining database search,
+LitMine addresses this gap by combining database search,
 citation extraction, deduplication, screening, and structured export in
 one local Python application that can be run on a laptop or shared as a
 single-machine deployment in a research group.
@@ -111,7 +111,7 @@ single-machine deployment in a research group.
 
 # Implementation
 
-Literature Collector is implemented in Python 3.9+ using Streamlit
+LitMine is implemented in Python 3.9+ using Streamlit
 [@streamlit] for the web UI, SQLAlchemy for the SQLite data layer,
 pandas for tabular processing, and `requests` for HTTP API access. The
 codebase is organised into independent modules under `api/` (one file per
@@ -126,7 +126,7 @@ listed there.
 
 # Use cases
 
-We exercised Literature Collector on two ongoing chemistry literature
+We exercised LitMine on two ongoing chemistry literature
 reviews in the authors' research group. In both projects, the curated
 seed set was a mix of review articles and key primary papers (the
 "references-to-mine" set), not exclusively reviews. Both runs were

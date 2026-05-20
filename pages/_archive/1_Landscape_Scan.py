@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -21,7 +21,7 @@ DECISIONS = ["unscreened", "include", "maybe", "exclude"]
 
 
 def load_project_selector() -> int:
-    st.sidebar.title("Literature Collector")
+    st.sidebar.title("LitMine")
     st.sidebar.markdown("---")
     session = new_session()
     try:
@@ -516,3 +516,4 @@ with tab_analysis:
         if saved_analysis:
             st.markdown("#### Previously Saved Analysis")
             st.markdown(saved_analysis)
+

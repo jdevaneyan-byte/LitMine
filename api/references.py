@@ -36,7 +36,7 @@ def _s2_headers() -> dict:
 
 def _crossref_headers() -> dict:
     mailto = os.getenv("CROSSREF_MAILTO", "")
-    ua = "review-collector/1.0"
+    ua = "litmine/1.0"
     if mailto:
         ua += f" (mailto:{mailto})"
     return {"User-Agent": ua}

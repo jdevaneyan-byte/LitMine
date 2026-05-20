@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "Literature Collector"
+title: "LitMine"
 message: "If you use this software, please cite it as below."
 authors:
   - family-names: "FILL IN"
@@ -7,10 +7,10 @@ authors:
     email: "jdevaneyan@gmail.com"
     # orcid: "https://orcid.org/0000-0000-0000-0000"
     # affiliation: "FILL IN"
-repository-code: "https://github.com/FILL_IN_USERNAME/literature-collector"
-url: "https://github.com/FILL_IN_USERNAME/literature-collector"
+repository-code: "https://github.com/jdevaneyan-byte/LitMine"
+url: "https://github.com/jdevaneyan-byte/LitMine"
 abstract: >-
-  Literature Collector is an open-source local-first workspace for academic
+  LitMine is an open-source local-first workspace for academic
   literature management. It unifies multi-database search (OpenAlex, PubMed,
   Semantic Scholar, arXiv), bulk citation extraction from curated review papers,
   duplicate detection, PRISMA-style screening with keyboard shortcuts, and
