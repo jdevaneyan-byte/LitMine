@@ -31,6 +31,13 @@ def search_reviews(
     return _search(topic, max_results, year_from, review_only=True)
 
 
+def search_both(
+    topic: str, max_results: int = 100, year_from: Optional[int] = None
+) -> list[dict]:
+    # arXiv items are all preprints; "both" is the same as the article search.
+    return _search(topic, max_results, year_from, review_only=False)
+
+
 def _search(
     topic: str, max_results: int, year_from: Optional[int], review_only: bool
 ) -> list[dict]:
@@ -116,6 +123,7 @@ def _parse_entry(entry: ET.Element) -> dict:
         "year": year,
         "source": "arXiv",
         "url": arxiv_url,
+        "pub_type": "Preprint",
     }
 
 

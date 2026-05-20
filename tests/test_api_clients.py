@@ -58,9 +58,24 @@ class OpenAlexTests(unittest.TestCase):
         self.assertEqual(rec["source"], "OpenAlex")
         self.assertEqual(rec["year"], 2024)
         self.assertIn("Alice Smith", rec["authors"])
+        self.assertEqual(rec["pub_type"], "article")
         # OpenAlex stores the abstract as an inverted index — make sure we
         # reconstructed something usable.
         self.assertIn("hello", rec["abstract"].lower())
+
+    @responses.activate
+    def test_search_both_uses_article_or_review_filter(self):
+        responses.add(
+            responses.GET,
+            "https://api.openalex.org/works",
+            json={"results": []},
+            status=200,
+        )
+        openalex.search_both("test", max_results=5, year_from=2020)
+        # The OR filter (type:article|review) must be present so reviews aren't
+        # silently dropped in 'Both' mode.
+        sent = responses.calls[0].request.url
+        self.assertIn("type%3Aarticle%7Creview", sent)  # url-encoded "type:article|review"
 
 
 # PubMed
@@ -164,6 +179,62 @@ class SemanticScholarTests(unittest.TestCase):
         self.assertEqual(rec["year"], 2022)
         self.assertEqual(rec["doi"], "10.1/s2-sample")
         self.assertIn("Carol Lee", rec["authors"])
+        self.assertEqual(rec["pub_type"], "JournalArticle")
+
+    @responses.activate
+    def test_search_articles_drops_books_and_reviews(self):
+        body = {
+            "data": [
+                {"title": "A journal article", "year": 2022, "authors": [],
+                 "externalIds": {"DOI": "10.1/a"}, "publicationTypes": ["JournalArticle"]},
+                {"title": "A book", "year": 2021, "authors": [],
+                 "externalIds": {"DOI": "10.1/b"}, "publicationTypes": ["Book"]},
+                {"title": "A dataset", "year": 2020, "authors": [],
+                 "externalIds": {"DOI": "10.1/c"}, "publicationTypes": ["Dataset"]},
+                {"title": "A review", "year": 2023, "authors": [],
+                 "externalIds": {"DOI": "10.1/d"}, "publicationTypes": ["Review"]},
+                {"title": "Untyped paper", "year": 2022, "authors": [],
+                 "externalIds": {"DOI": "10.1/e"}, "publicationTypes": []},
+            ]
+        }
+        responses.add(
+            responses.GET,
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            json=body,
+            status=200,
+        )
+        out = semantic_scholar.search_articles("test", max_results=50, year_from=2000)
+        titles = {r["title"] for r in out}
+        # Book + Dataset dropped (junk); Review dropped (article mode); untyped kept.
+        self.assertIn("A journal article", titles)
+        self.assertIn("Untyped paper", titles)
+        self.assertNotIn("A book", titles)
+        self.assertNotIn("A dataset", titles)
+        self.assertNotIn("A review", titles)
+
+    @responses.activate
+    def test_search_both_keeps_reviews_drops_books(self):
+        body = {
+            "data": [
+                {"title": "A journal article", "year": 2022, "authors": [],
+                 "externalIds": {"DOI": "10.1/a"}, "publicationTypes": ["JournalArticle"]},
+                {"title": "A review", "year": 2023, "authors": [],
+                 "externalIds": {"DOI": "10.1/d"}, "publicationTypes": ["Review"]},
+                {"title": "A book", "year": 2021, "authors": [],
+                 "externalIds": {"DOI": "10.1/b"}, "publicationTypes": ["Book"]},
+            ]
+        }
+        responses.add(
+            responses.GET,
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            json=body,
+            status=200,
+        )
+        out = semantic_scholar.search_both("test", max_results=50, year_from=2000)
+        titles = {r["title"] for r in out}
+        self.assertIn("A journal article", titles)
+        self.assertIn("A review", titles)   # both mode keeps reviews
+        self.assertNotIn("A book", titles)  # junk still dropped
 
 
 # arXiv

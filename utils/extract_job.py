@@ -18,6 +18,7 @@ def start_extract_job(
     review_ids: list[int],
     year_floor: int = 2019,
     keep_reviews_regardless_of_year: bool = True,
+    exclude_books: bool = True,
 ) -> str:
     job_id = str(uuid.uuid4())[:8]
     job_file = JOB_DIR / f"{job_id}.json"
@@ -30,7 +31,7 @@ def start_extract_job(
             "completed": 0,
             "current_review": "",
             "log": [],
-            "totals": {"kept": 0, "rejected": 0, "reviews_flagged": 0, "no_refs": 0},
+            "totals": {"kept": 0, "rejected": 0, "reviews_flagged": 0, "books_rejected": 0, "no_refs": 0},
             "done": False,
             "error": None,
         },
@@ -38,7 +39,7 @@ def start_extract_job(
 
     thread = threading.Thread(
         target=_run,
-        args=(job_file, project_id, review_ids, year_floor, keep_reviews_regardless_of_year),
+        args=(job_file, project_id, review_ids, year_floor, keep_reviews_regardless_of_year, exclude_books),
         daemon=True,
     )
     thread.start()
@@ -102,6 +103,7 @@ def _run(
     review_ids: list[int],
     year_floor: int,
     keep_reviews_regardless_of_year: bool,
+    exclude_books: bool = True,
 ):
     from api.references import fetch_references, ReferenceFetchError
     from database import init_db, new_session, CuratedReview, CitedArticle
@@ -162,6 +164,7 @@ def _run(
             kept = 0
             rejected = 0
             reviews_flagged = 0
+            books_rejected = 0
 
             session = new_session()
             try:
@@ -175,10 +178,16 @@ def _run(
 
                     year = ref.get("year")
                     is_review = bool(ref.get("is_review"))
+                    is_book = bool(ref.get("is_book"))
                     status = "kept"
                     rejected_reason = ""
 
-                    if is_review:
+                    if is_book and exclude_books:
+                        # Books are not research articles; reject up front.
+                        status = "rejected"
+                        rejected_reason = "Book / book chapter"
+                        books_rejected += 1
+                    elif is_review:
                         reviews_flagged += 1
                         if not keep_reviews_regardless_of_year and year is not None and year < year_floor:
                             status = "rejected"
@@ -208,6 +217,7 @@ def _run(
                             abstract=ref.get("abstract") or "",
                             url=ref.get("url") or "",
                             is_review=is_review,
+                            is_book=is_book,
                             publication_types=ref.get("publication_types") or "",
                             source=ref.get("source") or "",
                             status=status,
@@ -225,12 +235,19 @@ def _run(
             finally:
                 session.close()
 
+            book_note = f", {books_rejected} books" if books_rejected else ""
             _append_log(
                 job_file,
                 f"[{i+1}/{len(review_ids)}] `{review_label}` -> {len(refs)} refs, "
-                f"**{kept} kept**, {rejected} rejected, {reviews_flagged} flagged-as-review",
+                f"**{kept} kept**, {rejected} rejected, {reviews_flagged} flagged-as-review{book_note}",
             )
-            _bump(job_file, kept=kept, rejected=rejected, reviews_flagged=reviews_flagged)
+            _bump(
+                job_file,
+                kept=kept,
+                rejected=rejected,
+                reviews_flagged=reviews_flagged,
+                books_rejected=books_rejected,
+            )
 
         _patch(job_file, done=True, completed=len(review_ids))
 

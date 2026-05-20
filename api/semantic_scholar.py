@@ -12,6 +12,10 @@ def _headers() -> dict:
     return {"x-api-key": key} if key else {}
 
 
+# Semantic Scholar publicationTypes that are not research articles or reviews.
+_JUNK_TYPES = {"Book", "BookSection", "Dataset", "Editorial", "News", "LettersAndComments"}
+
+
 def search_reviews(
     topic: str, max_results: int = 50, year_from: Optional[int] = None
 ) -> list[dict]:
@@ -21,11 +25,24 @@ def search_reviews(
 def search_articles(
     topic: str, max_results: int = 100, year_from: Optional[int] = None
 ) -> list[dict]:
-    return _search(topic, max_results, year_from, review_only=False)
+    # S2's query API can only *include* a type, not exclude. So we fetch
+    # broadly and drop explicit non-research types in _search. Records with
+    # no publicationTypes are kept (benefit of the doubt) to preserve recall.
+    return _search(topic, max_results, year_from, review_only=False, drop_reviews=True)
+
+
+def search_both(
+    topic: str, max_results: int = 100, year_from: Optional[int] = None
+) -> list[dict]:
+    return _search(topic, max_results, year_from, review_only=False, drop_reviews=False)
 
 
 def _search(
-    topic: str, max_results: int, year_from: Optional[int], review_only: bool
+    topic: str,
+    max_results: int,
+    year_from: Optional[int],
+    review_only: bool,
+    drop_reviews: bool = False,
 ) -> list[dict]:
     results = []
     offset = 0
@@ -63,6 +80,13 @@ def _search(
             break
 
         for paper in papers:
+            raw_types = set(paper.get("publicationTypes") or [])
+            # Drop explicit non-research item types.
+            if raw_types & _JUNK_TYPES:
+                continue
+            # In article mode, drop reviews (records with no type are kept).
+            if drop_reviews and "Review" in raw_types:
+                continue
             parsed = _parse_paper(paper)
             if parsed["title"]:
                 results.append(parsed)
@@ -96,6 +120,12 @@ def _parse_paper(paper: dict) -> dict:
     if not url and ext.get("PubMed"):
         url = f"https://pubmed.ncbi.nlm.nih.gov/{ext['PubMed']}/"
 
+    pub_types = paper.get("publicationTypes") or []
+    if "Review" in pub_types:
+        pub_type = "Review"
+    else:
+        pub_type = pub_types[0] if pub_types else ""
+
     return {
         "title": title,
         "doi": doi,
@@ -104,4 +134,5 @@ def _parse_paper(paper: dict) -> dict:
         "year": year,
         "source": "Semantic Scholar",
         "url": url,
+        "pub_type": pub_type,
     }

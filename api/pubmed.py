@@ -14,6 +14,10 @@ def _api_key_param() -> dict:
     return {"api_key": key} if key else {}
 
 
+# Publication types PubMed assigns to non-research items we never want.
+_JUNK_PT = "(Comment[pt] OR Editorial[pt] OR News[pt] OR Published Erratum[pt] OR Retraction of Publication[pt])"
+
+
 def search_reviews(
     topic: str, max_results: int = 50, year_from: Optional[int] = None
 ) -> list[dict]:
@@ -26,7 +30,18 @@ def search_reviews(
 def search_articles(
     topic: str, max_results: int = 100, year_from: Optional[int] = None
 ) -> list[dict]:
-    query = topic
+    # Primary research: exclude reviews and non-research item types.
+    query = f"({topic}) NOT Review[Publication Type] NOT {_JUNK_PT}"
+    if year_from:
+        query += f" AND {year_from}:3000[PDAT]"
+    return _search(query, max_results)
+
+
+def search_both(
+    topic: str, max_results: int = 100, year_from: Optional[int] = None
+) -> list[dict]:
+    # Research + reviews; only strip non-research item types.
+    query = f"({topic}) NOT {_JUNK_PT}"
     if year_from:
         query += f" AND {year_from}:3000[PDAT]"
     return _search(query, max_results)
@@ -133,6 +148,19 @@ def _parse_xml(xml_text: str) -> list[dict]:
 
             url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
 
+            pub_types = [
+                (pt.text or "").strip()
+                for pt in art.findall(".//PublicationTypeList/PublicationType")
+                if pt.text
+            ]
+            # Prefer the most informative label: Review if present, else the
+            # first non-generic type, else "Journal Article".
+            if "Review" in pub_types:
+                pub_type = "Review"
+            else:
+                specific = [t for t in pub_types if t != "Journal Article"]
+                pub_type = specific[0] if specific else (pub_types[0] if pub_types else "")
+
             if title:
                 results.append(
                     {
@@ -143,6 +171,7 @@ def _parse_xml(xml_text: str) -> list[dict]:
                         "year": year,
                         "source": "PubMed",
                         "url": url,
+                        "pub_type": pub_type,
                     }
                 )
         except Exception:

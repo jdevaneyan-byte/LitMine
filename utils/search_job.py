@@ -123,19 +123,27 @@ def _title_matches(title: str, keywords: list[str], mode: str = "any") -> bool:
 
 
 def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_id: int, title_keyword: str = "", title_match_mode: str = "any"):
-    from utils.search_runner import run_review_search_with_status, run_article_search_with_status
-    from database import init_db, new_session, LandscapeArticle, CollectedArticle, Project
+    from utils.search_runner import (
+        run_review_search_with_status,
+        run_article_search_with_status,
+        run_both_search_with_status,
+    )
+    from database import init_db, new_session, CollectedArticle, Project
 
     init_db()
     total_added = 0
     total_skipped = 0
     keywords = _parse_keywords(title_keyword)
+    _runner = {
+        "reviews": run_review_search_with_status,
+        "both": run_both_search_with_status,
+    }.get(mode, run_article_search_with_status)
 
     try:
         for i, q in enumerate(queries):
             _patch(job_file, current_query=q, completed=i)
 
-            fn = run_review_search_with_status if mode == "reviews" else run_article_search_with_status
+            fn = _runner
             results, source_errors = fn(q, **settings)
 
             # Apply title keyword filter before saving
@@ -148,26 +156,17 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
 
             session = new_session()
             try:
-                if mode == "reviews":
-                    existing_dois = {
-                        a.doi.lower()
-                        for a in session.query(LandscapeArticle).filter_by(project_id=project_id).all()
-                        if a.doi
-                    }
-                    existing_titles = {
-                        a.title.lower()
-                        for a in session.query(LandscapeArticle).filter_by(project_id=project_id).all()
-                    }
-                else:
-                    existing_dois = {
-                        a.doi.lower()
-                        for a in session.query(CollectedArticle).filter_by(project_id=project_id).all()
-                        if a.doi
-                    }
-                    existing_titles = {
-                        a.title.lower()
-                        for a in session.query(CollectedArticle).filter_by(project_id=project_id).all()
-                    }
+                # The unified Workspace always collects into the library
+                # (CollectedArticle), regardless of review/article/both mode.
+                existing_dois = {
+                    a.doi.lower()
+                    for a in session.query(CollectedArticle).filter_by(project_id=project_id).all()
+                    if a.doi
+                }
+                existing_titles = {
+                    a.title.lower()
+                    for a in session.query(CollectedArticle).filter_by(project_id=project_id).all()
+                }
 
                 added = 0
                 for art in results:
@@ -178,7 +177,7 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                     if title_l in existing_titles:
                         continue
 
-                    record = (LandscapeArticle if mode == "reviews" else CollectedArticle)(
+                    record = CollectedArticle(
                         project_id=project_id,
                         title=art["title"],
                         doi=art.get("doi", ""),
@@ -187,6 +186,8 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                         year=art.get("year"),
                         source=art["source"],
                         url=art.get("url", ""),
+                        pub_type=art.get("pub_type", ""),
+                        screening_status="identified",
                     )
                     session.add(record)
                     existing_titles.add(title_l)
@@ -194,10 +195,9 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                         existing_dois.add(doi_l)
                     added += 1
 
-                if mode == "articles":
-                    proj = session.get(Project, project_id)
-                    if proj and proj.stage < 4:
-                        proj.stage = 4
+                proj = session.get(Project, project_id)
+                if proj and proj.stage < 4:
+                    proj.stage = 4
 
                 session.commit()
                 total_added += added

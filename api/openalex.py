@@ -4,7 +4,7 @@ from typing import Optional
 
 BASE_URL = "https://api.openalex.org"
 MAILTO = "research@litmine.app"
-FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id"
+FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id,type"
 
 
 def _reconstruct_abstract(inverted_index: Optional[dict]) -> str:
@@ -49,6 +49,7 @@ def _parse_work(work: dict) -> dict:
         "year": year,
         "source": "OpenAlex",
         "url": url,
+        "pub_type": work.get("type") or "",
     }
 
 
@@ -65,6 +66,18 @@ def search_articles(
     topic: str, max_results: int = 100, year_from: Optional[int] = None
 ) -> list[dict]:
     filters = "type:article"
+    if year_from:
+        filters += f",publication_year:>{year_from - 1}"
+    return _fetch(topic, filters, max_results)
+
+
+def search_both(
+    topic: str, max_results: int = 100, year_from: Optional[int] = None
+) -> list[dict]:
+    """Research articles and reviews together. OpenAlex treats 'review' as a
+    distinct type from 'article', so searching 'article' alone silently drops
+    reviews; the pipe is OpenAlex's OR operator within a filter key."""
+    filters = "type:article|review"
     if year_from:
         filters += f",publication_year:>{year_from - 1}"
     return _fetch(topic, filters, max_results)

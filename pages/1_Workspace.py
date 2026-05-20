@@ -212,6 +212,7 @@ def save_to_library(
                     year=art.get("year"),
                     source=imported_from or art.get("source", "Import"),
                     url=art.get("url", ""),
+                    pub_type=art.get("pub_type", ""),
                     screening_status="identified",
                     imported_from=imported_from,
                 )
@@ -270,7 +271,7 @@ def import_curated_reviews(project_id: int, rows: list[dict], replace: bool) -> 
 
 
 def derive_search_mode(literature_type: str, override: str) -> str:
-    """Return 'reviews' or 'articles' for the search runner."""
+    """Return 'reviews', 'articles', or 'both' for the search runner."""
     if override == "Research papers":
         return "articles"
     if override == "Review papers":
@@ -279,7 +280,7 @@ def derive_search_mode(literature_type: str, override: str) -> str:
         return "reviews"
     if literature_type == "Research papers":
         return "articles"
-    return "articles"  # Both → broad search; falls back to article search.
+    return "both"  # Both → research articles + reviews across all sources.
 
 
 # Section 1: Library
@@ -370,6 +371,28 @@ if section == "📚 Library":
             help="Case-insensitive substring match on tags you've assigned.",
         )
 
+    # Publication-type filter — options come from what's actually present.
+    session = new_session()
+    try:
+        present_types = sorted(
+            {
+                (t or "").strip()
+                for (t,) in session.query(CollectedArticle.pub_type)
+                .filter_by(project_id=selected_id)
+                .distinct()
+                if (t or "").strip()
+            }
+        )
+    finally:
+        session.close()
+    type_filter = st.selectbox(
+        "Publication type",
+        ["all"] + present_types,
+        key="lib_pubtype",
+        help="Filter by the publication type recorded from the source database "
+        "(e.g. article, review, preprint). 'all' includes records with no type.",
+    )
+
     page = st.session_state.get("lib_page", 0)
 
     session = new_session()
@@ -387,6 +410,8 @@ if section == "📚 Library":
             q = q.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= int(year_min))  # noqa: E711
         if tag_filter.strip():
             q = q.filter(CollectedArticle.tags.ilike(f"%{tag_filter.strip()}%"))
+        if type_filter != "all":
+            q = q.filter(CollectedArticle.pub_type == type_filter)
         ordered = q.order_by(CollectedArticle.year.desc().nullslast(), CollectedArticle.id.desc())
         total_filtered = ordered.count()
         all_filtered = ordered.all()
@@ -404,6 +429,7 @@ if section == "📚 Library":
                     "Year": a.year or "",
                     "Title": title[:140] + ("…" if len(title) > 140 else ""),
                     "Authors": authors[:80] + ("…" if len(authors) > 80 else ""),
+                    "Type": a.pub_type or "",
                     "Source": a.source or "",
                     "Decision": a.screening_status or "unscreened",
                     "Tags": a.tags or "",
@@ -496,6 +522,7 @@ if section == "📚 Library":
             "Title": st.column_config.TextColumn("Title", width="large"),
             "Authors": st.column_config.TextColumn("Authors", width="medium"),
             "Year": st.column_config.NumberColumn("Year", format="%d", width="small"),
+            "Type": st.column_config.TextColumn("Type", width="small", help="Publication type from the source database"),
             "Source": st.column_config.TextColumn("Source", width="small"),
             "Decision": st.column_config.TextColumn("Decision", width="small"),
             "Tags": st.column_config.TextColumn("Tags", width="small"),
@@ -803,9 +830,12 @@ elif section == "🔍 Search the web":
         literature_type=literature_type,
         override="" if type_override == "Use project setting" else type_override,
     )
-    st.caption(
-        f"This search will fetch **{'review' if search_mode == 'reviews' else 'research'}** papers."
-    )
+    _mode_label = {
+        "reviews": "review papers only",
+        "articles": "research papers only (reviews and non-research items excluded)",
+        "both": "research papers and reviews (non-research items like books, editorials and datasets excluded)",
+    }[search_mode]
+    st.caption(f"This search will fetch **{_mode_label}**.")
 
     one_or_many = st.radio(
         "How many topics?",
@@ -883,7 +913,11 @@ elif section == "🔍 Search the web":
     st.markdown("---")
 
     if one_or_many == "One topic":
-        from utils.search_runner import run_article_search_with_status, run_review_search_with_status
+        from utils.search_runner import (
+            run_article_search_with_status,
+            run_both_search_with_status,
+            run_review_search_with_status,
+        )
 
         with st.form("ws_one"):
             query = st.text_input(
@@ -896,6 +930,8 @@ elif section == "🔍 Search the web":
             with st.spinner("Searching databases…"):
                 if search_mode == "reviews":
                     results, errors = run_review_search_with_status(query, **search_settings)
+                elif search_mode == "both":
+                    results, errors = run_both_search_with_status(query, **search_settings)
                 else:
                     results, errors = run_article_search_with_status(query, **search_settings)
             added, skipped = save_to_library(results, selected_id, title_keyword, title_match_mode)
@@ -1043,7 +1079,7 @@ elif section == "🔗 Extract citations from reviews":
         )
         st.stop()
 
-    cc1, cc2, cc3 = st.columns(3)
+    cc1, cc2, cc3, cc4 = st.columns(4)
     with cc1:
         year_floor = st.number_input(
             "Year floor for research papers",
@@ -1060,6 +1096,13 @@ elif section == "🔗 Extract citations from reviews":
             help="If on, review-type citations are kept even if older than the year floor.",
         )
     with cc3:
+        exclude_books = st.checkbox(
+            "Exclude books / chapters",
+            value=True,
+            help="Reject cited references flagged as books or book chapters "
+            "(detected via Semantic Scholar / Crossref type metadata).",
+        )
+    with cc4:
         scope = st.radio(
             "Run on",
             ["Pending or failed", "All reviews", "Failed only"],
@@ -1095,11 +1138,12 @@ elif section == "🔗 Extract citations from reviews":
             if status.get("current_review") and not status["done"]:
                 st.caption(f"Working on: {status['current_review']}")
             totals = status.get("totals", {})
-            tcols = st.columns(4)
+            tcols = st.columns(5)
             tcols[0].metric("Kept", totals.get("kept", 0))
             tcols[1].metric("Rejected", totals.get("rejected", 0))
             tcols[2].metric("Reviews flagged", totals.get("reviews_flagged", 0))
-            tcols[3].metric("No refs", totals.get("no_refs", 0))
+            tcols[3].metric("Books rejected", totals.get("books_rejected", 0))
+            tcols[4].metric("No refs", totals.get("no_refs", 0))
             with st.expander("Per-review log", expanded=True):
                 for line in status.get("log", []):
                     st.markdown(line)
@@ -1124,6 +1168,7 @@ elif section == "🔗 Extract citations from reviews":
                 review_ids=target_ids,
                 year_floor=int(year_floor),
                 keep_reviews_regardless_of_year=keep_reviews_regardless,
+                exclude_books=exclude_books,
             )
             st.session_state.ws_extract_job_id = job_id
             st.rerun()

@@ -238,6 +238,26 @@ class ReferencesParserTests(unittest.TestCase):
         self.assertTrue(_looks_like_review("X", ["Review"]))
         self.assertFalse(_looks_like_review("Synthesis of X", []))
 
+    def test_looks_like_book(self):
+        from api.references import _looks_like_book
+
+        self.assertTrue(_looks_like_book(["Book"]))
+        self.assertTrue(_looks_like_book(["BookSection"]))
+        self.assertFalse(_looks_like_book(["JournalArticle"]))
+        self.assertFalse(_looks_like_book([]))
+
+    def test_parse_s2_paper_flags_book(self):
+        from api.references import _parse_s2_paper
+
+        out = _parse_s2_paper({
+            "title": "Some Book",
+            "year": 2010,
+            "externalIds": {"DOI": "10.1/book"},
+            "publicationTypes": ["Book"],
+        })
+        self.assertTrue(out["is_book"])
+        self.assertFalse(out["is_review"])
+
 
 class KeybindsImportSmoke(unittest.TestCase):
     def test_module_imports(self):

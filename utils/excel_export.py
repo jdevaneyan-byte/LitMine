@@ -136,6 +136,7 @@ def cited_articles_to_excel(cited: list, include_serial: bool = True) -> bytes:
                 "URL": _str(a.url),
                 "Abstract": _str(a.abstract),
                 "Is Review": "Yes" if a.is_review else "",
+                "Is Book": "Yes" if getattr(a, "is_book", False) else "",
                 "Publication Types": _str(a.publication_types),
                 "Status": _str(a.status),
                 "Rejected Reason": _str(a.rejected_reason),

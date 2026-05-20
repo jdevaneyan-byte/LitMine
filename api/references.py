@@ -106,6 +106,7 @@ def _parse_s2_paper(p: dict) -> dict:
     doi = (ext.get("DOI") or "").strip().lower()
     pub_types = p.get("publicationTypes") or []
     is_review = _looks_like_review(p.get("title") or "", pub_types)
+    is_book = _looks_like_book(pub_types)
     authors = ", ".join(_take_author_names(p.get("authors") or [])) or ""
     return {
         "title": (p.get("title") or "").strip(),
@@ -116,6 +117,7 @@ def _parse_s2_paper(p: dict) -> dict:
         "abstract": (p.get("abstract") or "").strip(),
         "url": (p.get("url") or (f"https://doi.org/{doi}" if doi else "")),
         "is_review": is_review,
+        "is_book": is_book,
         "publication_types": ", ".join(pub_types) if pub_types else "",
         "source": "Semantic Scholar",
     }
@@ -164,6 +166,12 @@ def _parse_crossref_ref(ref: dict) -> dict:
     year = _safe_int(ref.get("year"))
     authors = (ref.get("author") or "").strip()
     venue = (ref.get("journal-title") or "").strip()
+    # Crossref references that carry only a volume/series title (no
+    # article-title) are usually book or book-series entries.
+    is_book = bool(
+        (ref.get("volume-title") or ref.get("series-title"))
+        and not ref.get("article-title")
+    )
     return {
         "title": title,
         "doi": doi,
@@ -173,6 +181,7 @@ def _parse_crossref_ref(ref: dict) -> dict:
         "abstract": "",
         "url": f"https://doi.org/{doi}" if doi else "",
         "is_review": _looks_like_review(title, []),
+        "is_book": is_book,
         "publication_types": "",
         "source": "Crossref",
     }
@@ -214,9 +223,14 @@ def _enrich_crossref_refs(refs: list[dict]) -> list[dict]:
                         names.append(name)
                 r["authors"] = ", ".join(names)
             ctype = (m.get("type") or "").lower()
+            if ctype:
+                r["publication_types"] = ctype
             if "review" in ctype:
                 r["is_review"] = True
-                r["publication_types"] = ctype
+            # Crossref types: book, book-chapter, book-part, book-section,
+            # book-set, monograph, reference-book, edited-book.
+            if "book" in ctype or "monograph" in ctype:
+                r["is_book"] = True
             time.sleep(0.05)
         except Exception:
             continue
@@ -237,6 +251,13 @@ def _looks_like_review(title: str, publication_types: Iterable[str]) -> bool:
             return True
     if title and _REVIEW_TITLE_PATTERNS.search(title):
         return True
+    return False
+
+
+def _looks_like_book(publication_types: Iterable[str]) -> bool:
+    for pt in publication_types or []:
+        if pt and pt.strip().lower() in {"book", "booksection", "book-chapter", "monograph"}:
+            return True
     return False
 
 
