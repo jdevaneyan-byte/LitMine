@@ -18,6 +18,14 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   const [project, setProject] = useState<Project | null>(null);
   const [tab, setTab] = useState<"library" | "read" | "network" | "quality" | "trash">("library");
+  // When the Data quality tab asks to fix a specific paper, jump to Read & review
+  // with that paper selected and its editor open.
+  const [readFocusId, setReadFocusId] = useState<number | null>(null);
+
+  const focusInReview = (id: number) => {
+    setReadFocusId(id);
+    setTab("read");
+  };
 
   useEffect(() => {
     getProject(projectId).then(setProject).catch(() => setProject(null));
@@ -67,9 +75,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       </div>
 
       {tab === "library" && <LibraryTab projectId={projectId} />}
-      {tab === "read" && <ReadReview projectId={projectId} />}
+      {tab === "read" && (
+        <ReadReview
+          projectId={projectId}
+          focusId={readFocusId}
+          onFocusConsumed={() => setReadFocusId(null)}
+        />
+      )}
       {tab === "network" && <NetworkMap projectId={projectId} />}
-      {tab === "quality" && <DataQuality projectId={projectId} />}
+      {tab === "quality" && <DataQuality projectId={projectId} onFix={focusInReview} />}
       {tab === "trash" && <Trash projectId={projectId} />}
     </div>
   );

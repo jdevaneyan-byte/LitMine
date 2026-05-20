@@ -1,12 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { editArticle, extractReferences, getArticle, listArticles, trashArticle } from "@/lib/api";
 import type { Article } from "@/lib/types";
 
 const DECISIONS = ["unscreened", "include", "maybe", "exclude"] as const;
 
-export default function ReadReview({ projectId }: { projectId: number }) {
+export default function ReadReview({
+  projectId,
+  focusId = null,
+  onFocusConsumed,
+}: {
+  projectId: number;
+  focusId?: number | null;
+  onFocusConsumed?: () => void;
+}) {
   const [list, setList] = useState<Article[]>([]);
   const [q, setQ] = useState("");
   const [journal, setJournal] = useState("");
@@ -17,6 +25,9 @@ export default function ReadReview({ projectId }: { projectId: number }) {
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Article>>({});
+  // Set when we arrive via "Fix" from Data quality: open the editor once the
+  // focused paper's detail finishes loading.
+  const editOnLoad = useRef(false);
 
   const reload = useCallback(() => {
     return listArticles(projectId, {
@@ -50,9 +61,22 @@ export default function ReadReview({ projectId }: { projectId: number }) {
       .then((a) => {
         setDetail(a);
         setDraft(a);
+        if (editOnLoad.current) {
+          setEditing(true);
+          editOnLoad.current = false;
+        }
       })
       .finally(() => setLoadingDetail(false));
   }, [selectedId]);
+
+  // Arrived from Data quality's "Fix" button: select that paper and open its editor.
+  useEffect(() => {
+    if (focusId == null) return;
+    editOnLoad.current = true;
+    setSelectedId(focusId);
+    setEditing(true); // covers the case where focusId is already the selected paper
+    onFocusConsumed?.();
+  }, [focusId, onFocusConsumed]);
 
   const decide = useCallback(
     async (status: string) => {

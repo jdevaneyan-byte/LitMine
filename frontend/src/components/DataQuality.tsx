@@ -6,9 +6,11 @@ import {
   findActiveEnrich,
   getCompleteness,
   getEnrichStatus,
+  listIncomplete,
   startEnrich,
   type Completeness,
   type EnrichStatus,
+  type IncompleteArticle,
 } from "@/lib/api";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -20,14 +22,22 @@ const FIELD_LABELS: Record<string, string> = {
   venue: "Journal",
 };
 
-export default function DataQuality({ projectId }: { projectId: number }) {
+export default function DataQuality({
+  projectId,
+  onFix,
+}: {
+  projectId: number;
+  onFix?: (articleId: number) => void;
+}) {
   const [report, setReport] = useState<Completeness | null>(null);
+  const [incomplete, setIncomplete] = useState<IncompleteArticle[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<EnrichStatus | null>(null);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadReport = useCallback(() => {
     getCompleteness(projectId).then(setReport).catch(() => setReport(null));
+    listIncomplete(projectId).then((r) => setIncomplete(r.items)).catch(() => setIncomplete([]));
   }, [projectId]);
 
   useEffect(() => {
@@ -133,6 +143,50 @@ export default function DataQuality({ projectId }: { projectId: number }) {
           Refresh audit
         </button>
       </div>
+
+      {incomplete.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b px-4 py-2.5">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Needs attention ({incomplete.length})
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              Anything the worker couldn’t fill — open it in Read &amp; review to complete by hand.
+            </div>
+          </div>
+          <div className="max-h-[28rem] overflow-y-auto">
+            {incomplete.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center gap-3 border-b px-4 py-2.5 text-sm last:border-0 hover:bg-[var(--surface-2)]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-1 font-medium">{a.title}</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--muted)]">
+                    <span>{a.year ?? "—"}</span>
+                    {a.venue && <span className="line-clamp-1 italic">· {a.venue}</span>}
+                    {!a.has_doi && <span className="badge badge-exclude">no DOI</span>}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {a.missing.map((f) => (
+                    <span
+                      key={f}
+                      className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                      style={{ background: "#fef3c7", color: "#92400e" }}
+                    >
+                      {FIELD_LABELS[f] ?? f}
+                    </span>
+                  ))}
+                </div>
+                <button className="btn btn-primary shrink-0 px-3 py-1 text-xs" onClick={() => onFix?.(a.id)}>
+                  Fix →
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {status && (
         <div className="card p-4">

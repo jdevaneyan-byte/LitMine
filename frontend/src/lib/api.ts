@@ -117,8 +117,21 @@ export interface EnrichStatus {
   error: string | null;
 }
 
+export interface IncompleteArticle {
+  id: number;
+  title: string;
+  year: number | null;
+  venue: string;
+  doi: string;
+  has_doi: boolean;
+  missing: string[];
+}
+
 export function getCompleteness(projectId: number): Promise<Completeness> {
   return get<Completeness>(`/api/projects/${projectId}/completeness`);
+}
+export function listIncomplete(projectId: number, limit = 500): Promise<{ items: IncompleteArticle[] }> {
+  return get<{ items: IncompleteArticle[] }>(`/api/projects/${projectId}/incomplete?limit=${limit}`);
 }
 export function startEnrich(projectId: number): Promise<{ job_id: string; already_running: boolean }> {
   return post<{ job_id: string; already_running: boolean }>(`/api/projects/${projectId}/enrich`);

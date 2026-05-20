@@ -23,6 +23,39 @@ def missing_fields(article) -> list[str]:
     return out
 
 
+def list_incomplete(project_id: int, limit: int = 500) -> list[dict]:
+    """The actual incomplete papers (not just counts) so the UI can offer a
+    per-paper 'fix this one' drill-down. No-DOI rows first (only a human can
+    fix those), then the rest, newest first."""
+    session = new_session()
+    try:
+        rows = (
+            session.query(CollectedArticle)
+            .filter_by(project_id=project_id)
+            .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
+            .all()
+        )
+        out = []
+        for a in rows:
+            miss = missing_fields(a)
+            if not miss:
+                continue
+            out.append({
+                "id": a.id,
+                "title": a.title or "(untitled)",
+                "year": a.year,
+                "venue": a.venue or "",
+                "doi": (a.doi or "").strip(),
+                "has_doi": bool((a.doi or "").strip()),
+                "missing": miss,
+            })
+        # No-DOI first (manual-only), then newest by year.
+        out.sort(key=lambda r: (r["has_doi"], -(r["year"] or 0)))
+        return out[:limit]
+    finally:
+        session.close()
+
+
 def audit_project(project_id: int) -> dict:
     """Return per-field missing counts + how many records are complete /
     incomplete / fixable (have a DOI to look up)."""

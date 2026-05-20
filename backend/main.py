@@ -333,6 +333,14 @@ def completeness(project_id: int):
     return audit_project(project_id)
 
 
+@app.get("/api/projects/{project_id}/incomplete")
+def incomplete(project_id: int, limit: int = Query(500, le=2000)):
+    """The actual incomplete papers, for the per-paper 'fix this one' list."""
+    from utils.completeness import list_incomplete
+
+    return {"items": list_incomplete(project_id, limit)}
+
+
 @app.post("/api/projects/{project_id}/enrich")
 def start_enrich(project_id: int):
     from utils.enrich_job import find_active_job, start_enrich_job
