@@ -3,15 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { getNetwork } from "@/lib/api";
-import type { GraphEdge, GraphNode, Network, NetworkMode } from "@/lib/types";
+import type { GraphNode, Network, NetworkMode } from "@/lib/types";
 
-// react-force-graph-3d uses three.js (needs window) → load client-only.
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), { ssr: false });
 
-const MODES: { key: NetworkMode; label: string; hint: string }[] = [
-  { key: "citation", label: "Citation", hint: "Reviews → the papers they cite. Bigger = cited by more reviews." },
-  { key: "author", label: "Authors", hint: "Authors linked when they share a paper. Bigger = more papers." },
-  { key: "journal", label: "Journals", hint: "A review's journal → the venues of the papers it cites." },
+const MODES: { key: NetworkMode; label: string; purpose: string }[] = [
+  { key: "citation", label: "Citation", purpose: "Find foundational papers: which works your reviews cite most, and which reviews cite them." },
+  { key: "author", label: "Authors", purpose: "See the research community: who publishes together on this topic." },
+  { key: "journal", label: "Journals", purpose: "See where the field lives: which journals cite which venues." },
 ];
 
 const TYPE_COLOR: Record<string, string> = {
@@ -21,10 +20,20 @@ const TYPE_COLOR: Record<string, string> = {
   author: "#4ade80",
   journal: "#fbbf24",
 };
+const DIM = "rgba(120,130,150,0.12)";
+const SELECTED_COLOR = "#ffffff";
 
 interface FGNode extends GraphNode {
   raw: GraphNode;
-  degree: number;
+}
+interface FGLink {
+  source: string | { id: string };
+  target: string | { id: string };
+  type?: string;
+}
+
+function endId(x: string | { id: string }): string {
+  return typeof x === "object" ? x.id : x;
 }
 
 export default function NetworkMap({ projectId }: { projectId: number }) {
@@ -32,15 +41,14 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
   const [net, setNet] = useState<Network | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<GraphNode | null>(null);
-  const [maxNodes, setMaxNodes] = useState(150);
-  const [hideIsolated, setHideIsolated] = useState(true);
+  const [maxNodes, setMaxNodes] = useState(120);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<Set<string>>(new Set());
 
-  const graphRef = useRef<{ cameraPosition: (p: object, t: object, ms: number) => void } | null>(null);
+  const fgRef = useRef<{ cameraPosition: (p: object, t: object, ms: number) => void; zoomToFit: (ms?: number, px?: number) => void } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ w: 800, h: 640 });
+  const [dims, setDims] = useState({ w: 800, h: 680 });
 
-  // Measure the graph container so the canvas fills it.
   useEffect(() => {
     if (!wrapRef.current) return;
     const ro = new ResizeObserver((entries) => {
@@ -54,46 +62,95 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    setSelected(null);
+    setSelectedId(null);
+    setHighlight(new Set());
     getNetwork(projectId, mode)
       .then(setNet)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [projectId, mode]);
 
-  // Filter to the top-`maxNodes` by weight, keep only internal edges, then
-  // (optionally) drop nodes left with no connections — that removes the
-  // ugly grid of disconnected dots.
-  const graphData = useMemo(() => {
-    if (!net) return { nodes: [] as FGNode[], links: [] as GraphEdge[] };
-    const top = [...net.nodes].sort((a, b) => b.weight - a.weight).slice(0, maxNodes);
-    const keep = new Set(top.map((n) => n.id));
-    const links = net.edges.filter((e) => keep.has(e.source) && keep.has(e.target));
-    const degree = new Map<string, number>();
-    links.forEach((l) => {
-      degree.set(l.source, (degree.get(l.source) ?? 0) + 1);
-      degree.set(l.target, (degree.get(l.target) ?? 0) + 1);
-    });
-    let nodes: FGNode[] = top.map((n) => ({ ...n, raw: n, degree: degree.get(n.id) ?? 0 }));
-    if (hideIsolated) nodes = nodes.filter((n) => n.degree > 0);
-    const present = new Set(nodes.map((n) => n.id));
-    const finalLinks = links.filter((l) => present.has(l.source) && present.has(l.target));
-    return { nodes, links: finalLinks.map((l) => ({ ...l })) };
-  }, [net, maxNodes, hideIsolated]);
+  // Build a connected subgraph + adjacency map.
+  const { nodes, links, adjacency, nodeById } = useMemo(() => {
+    const empty = { nodes: [] as FGNode[], links: [] as FGLink[], adjacency: new Map<string, Set<string>>(), nodeById: new Map<string, GraphNode>() };
+    if (!net) return empty;
 
-  const focusNode = useCallback((n: GraphNode) => {
-    setSelected(n);
-    const node = graphData.nodes.find((x) => x.id === n.id) as unknown as { x?: number; y?: number; z?: number };
-    if (node?.x != null && graphRef.current) {
-      const dist = 120;
-      const ratio = 1 + dist / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
-      graphRef.current.cameraPosition(
-        { x: (node.x || 0) * ratio, y: (node.y || 0) * ratio, z: (node.z || 0) * ratio },
-        { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
-        800,
-      );
+    const byId = new Map(net.nodes.map((n) => [n.id, n]));
+    let keepIds = new Set<string>();
+
+    if (mode === "citation") {
+      // Keep the most-cited papers AND every review that cites them, so the
+      // bipartite review→paper edges survive (this is what was broken).
+      const papers = net.nodes.filter((n) => n.type !== "review").sort((a, b) => b.weight - a.weight);
+      const keptPapers = papers.slice(0, maxNodes).map((p) => p.id);
+      const keptPaperSet = new Set(keptPapers);
+      const reviewIds = new Set<string>();
+      net.edges.forEach((e) => {
+        if (keptPaperSet.has(e.target)) reviewIds.add(e.source);
+        if (keptPaperSet.has(e.source)) reviewIds.add(e.target);
+      });
+      keepIds = new Set([...keptPapers, ...reviewIds]);
+    } else {
+      keepIds = new Set([...net.nodes].sort((a, b) => b.weight - a.weight).slice(0, maxNodes).map((n) => n.id));
     }
-  }, [graphData]);
+
+    const adj = new Map<string, Set<string>>();
+    const flinks: FGLink[] = [];
+    net.edges.forEach((e) => {
+      if (keepIds.has(e.source) && keepIds.has(e.target)) {
+        flinks.push({ source: e.source, target: e.target, type: e.type });
+        if (!adj.has(e.source)) adj.set(e.source, new Set());
+        if (!adj.has(e.target)) adj.set(e.target, new Set());
+        adj.get(e.source)!.add(e.target);
+        adj.get(e.target)!.add(e.source);
+      }
+    });
+
+    // Drop nodes with no connection (keeps the canvas clean).
+    const connected = [...keepIds].filter((id) => (adj.get(id)?.size ?? 0) > 0);
+    const present = new Set(connected);
+    const fnodes: FGNode[] = connected
+      .map((id) => byId.get(id)!)
+      .filter(Boolean)
+      .map((n) => ({ ...n, raw: n }));
+    const finalLinks = flinks.filter((l) => present.has(endId(l.source)) && present.has(endId(l.target)));
+    return { nodes: fnodes, links: finalLinks, adjacency: adj, nodeById: byId };
+  }, [net, mode, maxNodes]);
+
+  const selectNode = useCallback(
+    (id: string | null) => {
+      setSelectedId(id);
+      if (id == null) {
+        setHighlight(new Set());
+        return;
+      }
+      const neighbors = adjacency.get(id) ?? new Set<string>();
+      setHighlight(new Set([id, ...neighbors]));
+      const node = nodes.find((n) => n.id === id) as unknown as { x?: number; y?: number; z?: number };
+      if (node?.x != null && fgRef.current) {
+        const r = Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+        const ratio = 1 + 160 / (r || 1);
+        fgRef.current.cameraPosition(
+          { x: (node.x || 0) * ratio, y: (node.y || 0) * ratio, z: (node.z || 0) * ratio },
+          { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
+          800,
+        );
+      }
+    },
+    [adjacency, nodes],
+  );
+
+  const active = highlight.size > 0;
+  const neighborList = useMemo(() => {
+    if (!selectedId) return [];
+    const ids = [...(adjacency.get(selectedId) ?? [])];
+    return ids
+      .map((id) => nodeById.get(id))
+      .filter((n): n is GraphNode => Boolean(n))
+      .sort((a, b) => b.weight - a.weight);
+  }, [selectedId, adjacency, nodeById]);
+
+  const selectedNode = selectedId ? nodeById.get(selectedId) : null;
 
   return (
     <div>
@@ -111,148 +168,159 @@ export default function NetworkMap({ projectId }: { projectId: number }) {
             </button>
           ))}
         </div>
-
         <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-          Max nodes
-          <input
-            type="range"
-            min={50}
-            max={Math.min(800, net?.nodes.length ?? 800)}
-            step={25}
-            value={maxNodes}
-            onChange={(e) => setMaxNodes(Number(e.target.value))}
-          />
+          Max papers
+          <input type="range" min={40} max={400} step={20} value={maxNodes} onChange={(e) => setMaxNodes(Number(e.target.value))} />
           <span className="tabular-nums">{maxNodes}</span>
         </label>
-
-        <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
-          <input type="checkbox" checked={hideIsolated} onChange={(e) => setHideIsolated(e.target.checked)} />
-          Hide disconnected
-        </label>
-
-        <span className="hidden text-xs text-[var(--muted)] lg:inline">{MODES.find((m) => m.key === mode)?.hint}</span>
         {net && (
           <span className="ml-auto text-xs text-[var(--muted)]">
-            showing {graphData.nodes.length} / {net.nodes.length} nodes · {graphData.links.length} edges
+            {nodes.length} nodes · {links.length} edges
           </span>
         )}
       </div>
+      <p className="mb-3 text-xs text-[var(--muted)]">{MODES.find((m) => m.key === mode)?.purpose}</p>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,1fr)_300px]">
-        {/* Left: top-nodes list, pinned left */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[230px_minmax(0,1fr)_320px]">
+        {/* Left: ranked list */}
         <div className="card flex max-h-[80vh] flex-col overflow-hidden">
           <div className="border-b p-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Top nodes
+            {mode === "citation" ? "Most-cited papers" : mode === "author" ? "Top authors" : "Top journals"}
           </div>
           <div className="flex-1 overflow-y-auto">
             {net &&
               [...net.nodes]
+                .filter((n) => (mode === "citation" ? n.type !== "review" : true))
                 .sort((a, b) => b.weight - a.weight)
                 .slice(0, 120)
                 .map((n) => (
                   <button
                     key={n.id}
-                    onClick={() => focusNode(n)}
+                    onClick={() => selectNode(n.id)}
                     className={`block w-full border-b px-3 py-2 text-left text-xs transition hover:bg-[var(--surface-2)] ${
-                      selected?.id === n.id ? "bg-[var(--primary-weak)]" : ""
+                      selectedId === n.id ? "bg-[var(--primary-weak)]" : ""
                     }`}
                   >
                     <div className="line-clamp-2 font-medium">{n.label}</div>
                     <div className="mt-0.5 text-[var(--muted)]">
-                      {n.cited_by_count != null
-                        ? `cited by ${n.cited_by_count}`
-                        : n.papers != null
-                        ? `${n.papers} papers`
-                        : n.type}
+                      {n.cited_by_count != null ? `cited by ${n.cited_by_count}` : n.papers != null ? `${n.papers} papers` : n.type}
                     </div>
                   </button>
                 ))}
           </div>
         </div>
 
-        {/* Middle: big 3D graph */}
-        <div
-          ref={wrapRef}
-          className="relative h-[80vh] overflow-hidden rounded-[14px] border"
-          style={{ background: "#0b1220" }}
-        >
-          {loading && (
-            <div className="absolute inset-0 z-10 grid place-items-center text-sm text-slate-300">
-              Building 3D network…
-            </div>
+        {/* Middle: 3D graph */}
+        <div ref={wrapRef} className="relative h-[80vh] overflow-hidden rounded-[14px] border" style={{ background: "#0b1220" }}>
+          {loading && <Overlay text="Building 3D network…" />}
+          {error && <Overlay text={error} danger />}
+          {!loading && net && nodes.length === 0 && (
+            <Overlay text="No connected nodes for this mode. Try increasing Max papers, or switch mode (Authors usually has data)." />
           )}
-          {error && (
-            <div className="absolute inset-0 z-10 grid place-items-center p-6 text-center text-sm text-red-300">
-              {error}
-            </div>
-          )}
-          {!loading && net && graphData.nodes.length === 0 && (
-            <div className="absolute inset-0 z-10 grid place-items-center p-6 text-center text-sm text-slate-300">
-              No connected nodes for this mode. Citation needs extracted references; try unchecking
-              “Hide disconnected” or another mode.
-            </div>
-          )}
-          {!loading && !error && graphData.nodes.length > 0 && (
+          {!loading && !error && nodes.length > 0 && (
             <ForceGraph3D
-              ref={graphRef as never}
+              ref={fgRef as never}
               width={dims.w}
               height={dims.h}
-              graphData={graphData as never}
+              graphData={{ nodes, links } as never}
               backgroundColor="#0b1220"
               nodeLabel={(n: object) => {
                 const node = n as FGNode;
                 const extra = node.cited_by_count != null ? ` — cited by ${node.cited_by_count}` : node.papers != null ? ` — ${node.papers} papers` : "";
                 return `${node.label}${extra}`;
               }}
-              nodeColor={(n: object) => TYPE_COLOR[(n as FGNode).type] ?? "#94a3b8"}
-              nodeVal={(n: object) => 1 + Math.min(30, (n as FGNode).weight)}
-              nodeOpacity={0.92}
-              nodeResolution={12}
-              linkColor={() => "rgba(148,163,184,0.25)"}
-              linkWidth={0.4}
-              linkDirectionalParticles={0}
-              warmupTicks={40}
-              cooldownTicks={80}
-              onNodeClick={(n: object) => focusNode((n as FGNode).raw)}
+              nodeColor={(n: object) => {
+                const node = n as FGNode;
+                if (!active) return TYPE_COLOR[node.type] ?? "#94a3b8";
+                if (node.id === selectedId) return SELECTED_COLOR;
+                if (highlight.has(node.id)) return TYPE_COLOR[node.type] ?? "#94a3b8";
+                return DIM;
+              }}
+              nodeVal={(n: object) => {
+                const node = n as FGNode;
+                const base = 1 + Math.min(30, node.weight);
+                return node.id === selectedId ? base * 1.8 : base;
+              }}
+              nodeOpacity={1}
+              nodeResolution={14}
+              linkColor={(l: object) => {
+                const link = l as FGLink;
+                const s = endId(link.source);
+                const t = endId(link.target);
+                if (active && (s === selectedId || t === selectedId)) return "rgba(165,180,252,0.95)";
+                if (active) return "rgba(80,90,110,0.05)";
+                return "rgba(148,163,184,0.22)";
+              }}
+              linkWidth={(l: object) => {
+                const link = l as FGLink;
+                return active && (endId(link.source) === selectedId || endId(link.target) === selectedId) ? 1.4 : 0.4;
+              }}
+              warmupTicks={50}
+              cooldownTicks={90}
+              onNodeClick={(n: object) => selectNode((n as FGNode).id)}
+              onBackgroundClick={() => selectNode(null)}
               enableNodeDrag={false}
             />
           )}
+          <div className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-slate-400">
+            drag to rotate · scroll to zoom · click a node to focus its links
+          </div>
         </div>
 
-        {/* Right: details, pinned right */}
+        {/* Right: focused node + its connections */}
         <div className="card max-h-[80vh] overflow-y-auto p-4">
-          {selected ? (
+          {selectedNode ? (
             <div>
-              <span
-                className="badge"
-                style={{ background: (TYPE_COLOR[selected.type] ?? "#94a3b8") + "33", color: "#334155" }}
-              >
-                {selected.type}
+              <span className="badge" style={{ background: (TYPE_COLOR[selectedNode.type] ?? "#94a3b8") + "33", color: "#334155" }}>
+                {selectedNode.type}
               </span>
-              <h3 className="mt-2 text-sm font-semibold leading-snug">{selected.label}</h3>
+              <h3 className="mt-2 text-sm font-semibold leading-snug">{selectedNode.label}</h3>
               <dl className="mt-3 space-y-1.5 text-xs">
-                {selected.year != null && <Row k="Year" v={String(selected.year)} />}
-                {selected.cited_by_count != null && <Row k="Cited by (reviews)" v={String(selected.cited_by_count)} />}
-                {selected.papers != null && <Row k="Papers" v={String(selected.papers)} />}
-                {selected.doi && (
-                  <Row
-                    k="DOI"
-                    v={
-                      <a className="text-[var(--primary)] hover:underline" href={`https://doi.org/${selected.doi}`} target="_blank" rel="noreferrer">
-                        {selected.doi}
-                      </a>
-                    }
-                  />
+                {selectedNode.year != null && <Row k="Year" v={String(selectedNode.year)} />}
+                {selectedNode.cited_by_count != null && <Row k="Cited by (reviews)" v={String(selectedNode.cited_by_count)} />}
+                {selectedNode.papers != null && <Row k="Papers" v={String(selectedNode.papers)} />}
+                {selectedNode.doi && (
+                  <Row k="DOI" v={<a className="text-[var(--primary)] hover:underline" href={`https://doi.org/${selectedNode.doi}`} target="_blank" rel="noreferrer">{selectedNode.doi}</a>} />
                 )}
               </dl>
+
+              <div className="mt-4 border-t pt-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Connected to ({neighborList.length})
+                </div>
+                <div className="space-y-1">
+                  {neighborList.slice(0, 60).map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => selectNode(n.id)}
+                      className="block w-full rounded-md px-2 py-1.5 text-left text-xs transition hover:bg-[var(--surface-2)]"
+                    >
+                      <span
+                        className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle"
+                        style={{ background: TYPE_COLOR[n.type] ?? "#94a3b8" }}
+                      />
+                      <span className="line-clamp-1 align-middle">{n.label}</span>
+                    </button>
+                  ))}
+                  {neighborList.length === 0 && <div className="text-xs text-[var(--muted)]">No connections in view.</div>}
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="grid h-full place-items-center text-center text-xs text-[var(--muted)]">
-              Click a node (or a top-node on the left) to focus it and see details.
+            <div className="grid h-full place-items-center px-2 text-center text-xs text-[var(--muted)]">
+              Click a node — its connections light up here and in the graph, so you can trace what links to what.
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Overlay({ text, danger }: { text: string; danger?: boolean }) {
+  return (
+    <div className={`absolute inset-0 z-10 grid place-items-center p-6 text-center text-sm ${danger ? "text-red-300" : "text-slate-300"}`}>
+      {text}
     </div>
   );
 }
