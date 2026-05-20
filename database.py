@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, text as _sa_text
+from sqlalchemy import create_engine, event, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, text as _sa_text
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime, timezone
 
@@ -95,7 +95,7 @@ class CollectedArticle(Base):
     pub_type = Column(String(60), default="")  # normalized publication type from the source
     notes = Column(Text, default="")
     tags = Column(String(500), default="")
-    screening_status = Column(String(20), default="identified")
+    screening_status = Column(String(20), default="unscreened")
     decision_reason = Column(Text, default="")
     pdf_path = Column(String(1000), nullable=True)
     imported_from = Column(String(100), default="")
@@ -168,6 +168,18 @@ class CitedArticle(Base):
 engine = create_engine(
     f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False}
 )
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_conn, _record):
+    """Enable WAL so background-thread writes don't block UI reads, and wait
+    a few seconds before raising 'database is locked' under contention."""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA busy_timeout=5000")
+    cur.close()
+
+
 SessionFactory = sessionmaker(bind=engine, expire_on_commit=False)
 
 
@@ -202,6 +214,21 @@ def init_db():
                 conn.commit()
             except Exception:
                 pass  # Column already exists or old SQLite cannot apply a default expression.
+
+        # One-time relabel: older rows used "identified"/""/NULL for the
+        # not-yet-screened state; unify them to "unscreened" so the screening
+        # vocabulary is consistent with the UI. Idempotent.
+        try:
+            conn.execute(
+                _sa_text(
+                    "UPDATE collected_articles SET screening_status = 'unscreened' "
+                    "WHERE screening_status IS NULL OR screening_status = '' "
+                    "OR screening_status = 'identified'"
+                )
+            )
+            conn.commit()
+        except Exception:
+            pass
 
 
 def new_session():

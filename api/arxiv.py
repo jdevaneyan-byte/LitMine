@@ -38,25 +38,61 @@ def search_both(
     return _search(topic, max_results, year_from, review_only=False)
 
 
+PAGE_SIZE = 100
+MAX_PAGES = 5  # cap pages so a sparse query can't loop forever
+
+
 def _search(
     topic: str, max_results: int, year_from: Optional[int], review_only: bool
 ) -> list[dict]:
     if not topic.strip():
         return []
-    # arXiv "all:" matches title + abstract + authors + comment.
+    target = min(max(max_results, 1), 200)
+
+    # arXiv has no server-side year filter, so we paginate by relevance and
+    # keep filtering until we have `target` matches or run out of pages. This
+    # avoids the previous behaviour where a single page was fetched and then
+    # trimmed, silently returning far fewer than requested.
+    results: list[dict] = []
+    start = 0
+    for _page in range(MAX_PAGES):
+        root = _fetch_page(topic, start, PAGE_SIZE)
+        if root is None:
+            break
+        entries = root.findall("a:entry", NS)
+        if not entries:
+            break
+        for entry in entries:
+            parsed = _parse_entry(entry)
+            if not parsed["title"]:
+                continue
+            if year_from and parsed["year"] and parsed["year"] < year_from:
+                continue
+            if review_only and not _looks_like_review(parsed["title"]):
+                continue
+            results.append(parsed)
+            if len(results) >= target:
+                return results
+        if len(entries) < PAGE_SIZE:
+            break  # last page
+        start += PAGE_SIZE
+    return results
+
+
+def _fetch_page(topic: str, start: int, page_size: int):
     params = {
         "search_query": f"all:{topic}",
-        "start": 0,
-        "max_results": min(max(max_results, 1), 200),
+        "start": start,
+        "max_results": page_size,
         "sortBy": "relevance",
         "sortOrder": "descending",
     }
     last_err = None
+    resp = None
     for attempt in range(4):
         try:
             resp = requests.get(BASE_URL, params=params, timeout=60)
             if resp.status_code == 429:
-                # Rate-limited; back off and retry with growing delay.
                 time.sleep(5.0 * (attempt + 1))
                 last_err = RuntimeError("arXiv 429 rate-limited")
                 continue
@@ -73,23 +109,10 @@ def _search(
 
     # Polite back-off between calls (per arXiv API guidance: 1 req / 3 sec).
     time.sleep(3.0)
-
-    results: list[dict] = []
     try:
-        root = ET.fromstring(resp.text)
+        return ET.fromstring(resp.text)
     except ET.ParseError:
-        return []
-
-    for entry in root.findall("a:entry", NS):
-        parsed = _parse_entry(entry)
-        if not parsed["title"]:
-            continue
-        if year_from and parsed["year"] and parsed["year"] < year_from:
-            continue
-        if review_only and not _looks_like_review(parsed["title"]):
-            continue
-        results.append(parsed)
-    return results
+        return None
 
 
 def _parse_entry(entry: ET.Element) -> dict:

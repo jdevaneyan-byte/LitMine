@@ -125,6 +125,19 @@ class ExcelExportTests(unittest.TestCase):
         self.assertNotIn("/", name)
         self.assertNotIn(":", name)
 
+    def test_rows_to_excel_survives_illegal_chars_and_long_cells(self):
+        from utils.excel_export import rows_to_excel
+
+        rows = [
+            {"#": 1, "Title": "Bad \x01\x07 chars", "Abstract": "x" * 40000},
+        ]
+        # Must not raise IllegalCharacterError or exceed Excel's cell limit.
+        data = rows_to_excel(rows)
+        self.assertTrue(data[:2] == b"PK")
+        df = pd.read_excel(io.BytesIO(data))
+        self.assertNotIn("\x01", df.iloc[0]["Title"])
+        self.assertLessEqual(len(str(df.iloc[0]["Abstract"])), 32767)
+
 
 class ExcelImportTests(unittest.TestCase):
     def test_parse_curated_excel_finds_header_row(self):

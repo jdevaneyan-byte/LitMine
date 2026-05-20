@@ -187,13 +187,20 @@ def _parse_crossref_ref(ref: dict) -> dict:
     }
 
 
+# Max per-review Crossref enrichment lookups. A typical review cites
+# 30-150 papers; 250 covers almost all without unbounded runtime. Refs
+# beyond this keep whatever sparse metadata Crossref returned inline.
+CROSSREF_ENRICH_CAP = 250
+
+
 def _enrich_crossref_refs(refs: list[dict]) -> list[dict]:
     """For refs that have a DOI but no year/title, look them up individually.
 
-    Cheap (~50ms each) and bounded: we cap at 60 lookups per review to keep
-    extraction snappy. The remainder are kept as-is."""
+    Each lookup is ~50ms; bounded by CROSSREF_ENRICH_CAP per review so a
+    pathologically large reference list can't stall extraction. Any refs
+    beyond the cap are kept as-is."""
 
-    needs = [r for r in refs if r["doi"] and (not r["title"] or not r["year"])][:60]
+    needs = [r for r in refs if r["doi"] and (not r["title"] or not r["year"])][:CROSSREF_ENRICH_CAP]
     for r in needs:
         try:
             resp = requests.get(

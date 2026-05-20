@@ -77,22 +77,24 @@ def find_clusters(project_id: int, max_clusters: int = 50) -> list[DupCluster]:
         for other in group[1:]:
             union(group[0].id, other.id)
 
-    # Fuzzy within same year — bucket by year and only compare within bucket
-    # to keep it O(n^2/k) instead of O(n^2). Skip groups bigger than 600 (slow).
+    # Fuzzy title match within a sliding year window. Comparing each year y
+    # against y and y+1 (not just y) catches preprint→published pairs, where
+    # the published version often carries the next year. Bucketing keeps this
+    # close to O(n) instead of O(n^2).
     by_year: dict[int | None, list[CollectedArticle]] = defaultdict(list)
     for a in rows:
         by_year[a.year].append(a)
-    for year, group in by_year.items():
-        if len(group) > 600:
-            continue
-        keys = [(a, normalize_title(a.title)) for a in group]
-        for i in range(len(keys)):
-            a_i, k_i = keys[i]
+
+    def _fuzzy_union(primary, pool, same_group):
+        keys_p = [(a, normalize_title(a.title)) for a in primary]
+        keys_pool = [(a, normalize_title(a.title)) for a in pool]
+        for i, (a_i, k_i) in enumerate(keys_p):
             if len(k_i) < MIN_TITLE_LEN:
                 continue
-            for j in range(i + 1, len(keys)):
-                a_j, k_j = keys[j]
-                if len(k_j) < MIN_TITLE_LEN:
+            # When comparing a bucket to itself, only look at later items.
+            start = i + 1 if same_group else 0
+            for a_j, k_j in keys_pool[start:]:
+                if len(k_j) < MIN_TITLE_LEN or a_i.id == a_j.id:
                     continue
                 if find(a_i.id) == find(a_j.id):
                     continue
@@ -100,6 +102,21 @@ def find_clusters(project_id: int, max_clusters: int = 50) -> list[DupCluster]:
                     continue
                 if SequenceMatcher(None, k_i, k_j).ratio() >= SIM_THRESHOLD:
                     union(a_i.id, a_j.id)
+
+    real_years = sorted(y for y in by_year if y is not None)
+    for y in real_years:
+        primary = by_year[y]
+        if len(primary) > 800:
+            continue
+        _fuzzy_union(primary, primary, same_group=True)
+        nxt = by_year.get(y + 1)
+        if nxt and len(primary) + len(nxt) <= 1200:
+            _fuzzy_union(primary, nxt, same_group=False)
+
+    # Records with no year only compare against each other.
+    none_group = by_year.get(None)
+    if none_group and len(none_group) <= 800:
+        _fuzzy_union(none_group, none_group, same_group=True)
 
     groups: dict[int, list[CollectedArticle]] = defaultdict(list)
     for a in rows:

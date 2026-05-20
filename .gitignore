@@ -9,6 +9,10 @@
 # User data and runtime files
 litmine.db
 *.db
+# SQLite WAL sidecar files
+*.db-shm
+*.db-wal
+*.db-journal
 streamlit.log
 search_jobs/
 extract_jobs/

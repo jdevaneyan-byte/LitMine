@@ -11,11 +11,27 @@ Each row is one article (or cited reference). Columns are tuned for readability:
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+# openpyxl rejects these control characters; Excel caps a cell at 32,767 chars.
+_ILLEGAL_XLSX = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_EXCEL_CELL_LIMIT = 32767
+
+
+def _excel_safe(value):
+    """Strip control characters openpyxl can't write and cap to Excel's cell
+    length limit. Non-string values pass through unchanged."""
+    if not isinstance(value, str):
+        return value
+    cleaned = _ILLEGAL_XLSX.sub("", value)
+    if len(cleaned) > _EXCEL_CELL_LIMIT:
+        cleaned = cleaned[: _EXCEL_CELL_LIMIT - 1] + "…"
+    return cleaned
 
 
 # Per-column display widths (in Excel character units).
@@ -49,6 +65,9 @@ def rows_to_excel(rows: list[dict], sheet_name: str = "Articles") -> bytes:
     if not rows:
         rows = [{"(empty)": ""}]
 
+    # Sanitize every string cell so a single control character or an
+    # over-long abstract can't crash the entire export.
+    rows = [{k: _excel_safe(v) for k, v in row.items()} for row in rows]
     df = pd.DataFrame(rows)
 
     buf = io.BytesIO()

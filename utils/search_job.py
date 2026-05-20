@@ -187,7 +187,7 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                         source=art["source"],
                         url=art.get("url", ""),
                         pub_type=art.get("pub_type", ""),
-                        screening_status="identified",
+                        screening_status="unscreened",
                     )
                     session.add(record)
                     existing_titles.add(title_l)

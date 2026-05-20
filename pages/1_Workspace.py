@@ -56,6 +56,15 @@ init_db()
 
 PAGE_SIZE = 50
 DECISIONS = ["unscreened", "include", "maybe", "exclude"]
+# Values that all mean "not yet screened" (historical rows used these).
+UNSCREENED_VALUES = (None, "", "unscreened", "identified")
+
+
+def _unscreened_clause():
+    """SQLAlchemy clause matching any not-yet-screened representation."""
+    return CollectedArticle.screening_status.in_([v for v in UNSCREENED_VALUES if v is not None]) | (
+        CollectedArticle.screening_status == None  # noqa: E711
+    )
 EXCLUSION_REASONS = [
     "Off-topic",
     "Wrong study type",
@@ -213,7 +222,7 @@ def save_to_library(
                     source=imported_from or art.get("source", "Import"),
                     url=art.get("url", ""),
                     pub_type=art.get("pub_type", ""),
-                    screening_status="identified",
+                    screening_status="unscreened",
                     imported_from=imported_from,
                 )
             )
@@ -307,12 +316,7 @@ if section == "📚 Library":
         n_unscreened = (
             session.query(CollectedArticle)
             .filter_by(project_id=selected_id)
-            .filter(
-                (CollectedArticle.screening_status == None)  # noqa: E711
-                | (CollectedArticle.screening_status == "")
-                | (CollectedArticle.screening_status == "unscreened")
-                | (CollectedArticle.screening_status == "identified")
-            )
+            .filter(_unscreened_clause())
             .count()
         )
         n_include = session.query(CollectedArticle).filter_by(project_id=selected_id, screening_status="include").count()
@@ -400,12 +404,10 @@ if section == "📚 Library":
         q = session.query(CollectedArticle).filter_by(project_id=selected_id)
         if filter_kw.strip():
             q = q.filter(CollectedArticle.title.ilike(f"%{filter_kw.strip()}%"))
-        if decision_filter != "all":
-            q = q.filter(
-                (CollectedArticle.screening_status == decision_filter)
-                | (CollectedArticle.screening_status == "")
-                & (decision_filter == "unscreened")
-            )
+        if decision_filter == "unscreened":
+            q = q.filter(_unscreened_clause())
+        elif decision_filter != "all":
+            q = q.filter(CollectedArticle.screening_status == decision_filter)
         if year_min:
             q = q.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= int(year_min))  # noqa: E711
         if tag_filter.strip():
