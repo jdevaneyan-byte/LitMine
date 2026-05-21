@@ -19,10 +19,18 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen">
+    <div className="relative min-h-screen">
+      {/* Subtle ambient backdrop so the page reads as a designed surface, not a blank sheet */}
+      <div
+        className="pointer-events-none fixed inset-0 -z-10"
+        style={{
+          background:
+            "radial-gradient(1200px 500px at 15% -10%, rgba(59,130,246,0.07), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(217,119,6,0.05), transparent 55%)",
+        }}
+      />
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/85 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-6">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-8">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#1e40af] text-xs font-bold text-white shadow-[0_2px_8px_-2px_rgba(59,130,246,0.5)]">
             LM
           </span>
@@ -34,10 +42,10 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
+      <div className="mx-auto max-w-7xl px-8 py-10">
+        <div className="mb-7">
+          <h1 className="font-display text-[28px] font-bold leading-tight tracking-tight">Projects</h1>
+          <p className="mt-1.5 text-sm text-[var(--muted)]">
             Create a project, collect literature, then screen, analyze, and explore its citation network.
           </p>
         </div>
@@ -65,7 +73,7 @@ export default function HomePage() {
         )}
 
         {projects && projects.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {projects.map((p) => (
               <Link
                 key={p.id}

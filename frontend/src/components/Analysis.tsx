@@ -319,11 +319,11 @@ function Card({ title, subtitle, children }: { title: string; subtitle?: string;
 
 function Metric({ label, value, text, good, warn }: { label: string; value?: number; text?: string; good?: boolean; warn?: boolean }) {
   return (
-    <div className="card p-3">
-      <div className="text-lg font-semibold" style={{ color: good ? "#16a34a" : warn ? "#b45309" : "var(--text)" }}>
+    <div className="card p-4">
+      <div className="tnum font-mono text-xl font-bold" style={{ color: good ? "var(--success)" : warn ? "var(--warn)" : "var(--text)" }}>
         {text ?? (value ?? 0).toLocaleString()}
       </div>
-      <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</div>
+      <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">{label}</div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   startSearch,
   type SearchStatus,
 } from "@/lib/api";
+import { Search as SearchIcon, ChevronRight, ChevronDown } from "lucide-react";
 
 const TYPES = [
   ["both", "Review + research"],
@@ -178,10 +179,10 @@ export default function SearchPanel({
 
         <button
           type="button"
-          className="mt-4 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+          className="mt-4 flex items-center gap-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)]"
           onClick={() => setAdvanced((a) => !a)}
         >
-          {advanced ? "▾ Advanced options" : "▸ Advanced options"}
+          {advanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Advanced options
         </button>
 
         {advanced && (
@@ -243,12 +244,12 @@ export default function SearchPanel({
           </div>
         )}
 
-        {err && <div className="mt-3 text-xs text-[#b91c1c]">{err}</div>}
+        {err && <div className="mt-3 text-xs text-[var(--danger)]">{err}</div>}
 
         <div className="mt-4">
           {!running ? (
             <button className="btn btn-primary" onClick={run}>
-              Search &amp; collect
+              <SearchIcon size={15} /> Search &amp; collect
             </button>
           ) : (
             <button className="btn" onClick={() => jobId && cancelSearch(jobId)}>
@@ -273,10 +274,10 @@ export default function SearchPanel({
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between text-sm">
               <span>
-                {status.done ? "Done" : "Searching"} — {status.completed}/{status.total}
+                {status.done ? "Done" : "Searching"} — <span className="tnum font-mono">{status.completed}/{status.total}</span>
               </span>
               <span className="text-[var(--muted)]">
-                {status.total_added} added · {status.total_skipped} filtered
+                <span className="tnum font-mono text-[var(--success)]">{status.total_added}</span> added · <span className="tnum font-mono">{status.total_skipped}</span> filtered
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-[var(--bg)]">
@@ -290,7 +291,7 @@ export default function SearchPanel({
                 Now: {status.current_query}
               </div>
             )}
-            {status.error && <div className="mt-2 text-xs text-[#b91c1c]">{status.error}</div>}
+            {status.error && <div className="mt-2 text-xs text-[var(--danger)]">{status.error}</div>}
             {status.log.length > 0 && (
               <div className="mt-3 max-h-64 space-y-1 overflow-y-auto rounded-md bg-[var(--surface-2)] p-2 text-xs">
                 {status.log.slice(-80).map((line, i) => (
@@ -302,7 +303,7 @@ export default function SearchPanel({
             )}
             {status.done && status.duplicates_removed > 0 && (
               <div className="mt-2 text-xs text-[var(--muted)]">
-                🧹 Removed {status.duplicates_removed} fuzzy duplicate(s) after collecting.
+                Removed <span className="tnum font-mono">{status.duplicates_removed}</span> fuzzy duplicate(s) after collecting.
               </div>
             )}
             {status.done && status.total_added > 0 && onViewLibrary && (

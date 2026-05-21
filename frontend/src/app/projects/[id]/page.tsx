@@ -19,7 +19,7 @@ import ArticleModal from "@/components/ArticleModal";
 import Analysis from "@/components/Analysis";
 import CommandPalette, { type Command } from "@/components/CommandPalette";
 import { ShortcutsBar, HelpOverlay } from "@/components/Shortcuts";
-import { Library as LibraryIcon, Search as SearchIcon, LineChart, Share2, Trash2, Command as CommandIcon, Keyboard, ArrowLeft } from "lucide-react";
+import { Library as LibraryIcon, Search as SearchIcon, LineChart, Share2, Trash2, Command as CommandIcon, Keyboard, ArrowLeft, Menu, X } from "lucide-react";
 
 const NAV = [
   { key: "library", label: "Library", Icon: LibraryIcon },
@@ -65,6 +65,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [stats, setStats] = useState<ScreeningStats | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
+  const go = (t: Tab) => { setTab(t); setNavOpen(false); };
   const gPrefix = useRef(0);
   const bumpData = () => setDataVersion((v) => v + 1);
 
@@ -150,8 +152,18 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   return (
     <div className="flex min-h-screen">
-      {/* ── Dark navigation rail ─────────────────────────────────────── */}
-      <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col gap-4 overflow-y-auto bg-[var(--rail)] px-3 py-4 text-[var(--rail-text)] md:flex">
+      {/* Mobile scrim */}
+      {navOpen && <div className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setNavOpen(false)} />}
+
+      {/* ── Dark navigation rail (drawer on mobile, fixed on desktop) ── */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-screen w-[244px] shrink-0 flex-col gap-4 overflow-y-auto bg-[var(--rail)] px-3 py-4 text-[var(--rail-text)] shadow-2xl transition-transform duration-200 md:sticky md:top-0 md:translate-x-0 md:shadow-none ${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <button className="absolute right-3 top-3 rounded-md p-1 text-[var(--rail-muted)] hover:bg-[var(--rail-2)] hover:text-white md:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu">
+          <X size={18} />
+        </button>
         {/* Brand */}
         <Link href="/" className="flex items-center gap-2.5 px-2 py-1">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#1e40af] text-xs font-bold text-white shadow-[0_2px_8px_-2px_rgba(59,130,246,0.6)]">
@@ -172,7 +184,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         {/* Primary nav */}
         <nav className="flex flex-col gap-0.5">
           {NAV.map(({ key, label, Icon }) => (
-            <button key={key} className="rail-item" data-active={tab === key} onClick={() => setTab(key as Tab)}>
+            <button key={key} className="rail-item" data-active={tab === key} onClick={() => go(key as Tab)}>
               <Icon size={16} strokeWidth={2} />
               {label}
             </button>
@@ -184,11 +196,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <div className="mt-1">
             <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--rail-muted)]">Screening</div>
             <div className="flex flex-col gap-0.5">
-              <RailStat label="Total" value={stats.total} dot="#3b82f6" active={tab === "library" && decision === "all"} onClick={() => { setTab("library"); setDecision("all"); }} />
-              <RailStat label="Unscreened" value={stats.unscreened} dot="#64748b" active={tab === "library" && decision === "unscreened"} onClick={() => { setTab("library"); setDecision("unscreened"); }} />
-              <RailStat label="Include" value={stats.include} dot="#22c55e" active={tab === "library" && decision === "include"} onClick={() => { setTab("library"); setDecision("include"); }} />
-              <RailStat label="Maybe" value={stats.maybe} dot="#f59e0b" active={tab === "library" && decision === "maybe"} onClick={() => { setTab("library"); setDecision("maybe"); }} />
-              <RailStat label="Exclude" value={stats.exclude} dot="#ef4444" active={tab === "library" && decision === "exclude"} onClick={() => { setTab("library"); setDecision("exclude"); }} />
+              <RailStat label="Total" value={stats.total} dot="#3b82f6" active={tab === "library" && decision === "all"} onClick={() => { go("library"); setDecision("all"); }} />
+              <RailStat label="Unscreened" value={stats.unscreened} dot="#64748b" active={tab === "library" && decision === "unscreened"} onClick={() => { go("library"); setDecision("unscreened"); }} />
+              <RailStat label="Include" value={stats.include} dot="#22c55e" active={tab === "library" && decision === "include"} onClick={() => { go("library"); setDecision("include"); }} />
+              <RailStat label="Maybe" value={stats.maybe} dot="#f59e0b" active={tab === "library" && decision === "maybe"} onClick={() => { go("library"); setDecision("maybe"); }} />
+              <RailStat label="Exclude" value={stats.exclude} dot="#ef4444" active={tab === "library" && decision === "exclude"} onClick={() => { go("library"); setDecision("exclude"); }} />
             </div>
           </div>
         )}
@@ -202,6 +214,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/85 px-5 backdrop-blur">
+          <button className="btn btn-ghost px-2 md:hidden" onClick={() => setNavOpen(true)} aria-label="Open menu">
+            <Menu size={18} />
+          </button>
           <h1 className="font-display text-base font-semibold tracking-tight">{TAB_TITLE[tab]}</h1>
           {project?.topic && tab === "library" && (
             <span className="hidden truncate text-xs text-[var(--muted)] lg:inline">· {project.topic}</span>
