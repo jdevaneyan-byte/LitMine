@@ -30,7 +30,7 @@ export default function HomePage() {
       />
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/85 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-8">
+        <div className="flex h-14 w-full items-center gap-3 px-6 lg:px-8">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#1e40af] text-xs font-bold text-white shadow-[0_2px_8px_-2px_rgba(59,130,246,0.5)]">
             LM
           </span>
@@ -42,7 +42,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-8 py-10">
+      <div className="w-full px-6 py-8 lg:px-8">
         <div className="mb-7">
           <h1 className="font-display text-[28px] font-bold leading-tight tracking-tight">Projects</h1>
           <p className="mt-1.5 text-sm text-[var(--muted)]">
@@ -73,7 +73,7 @@ export default function HomePage() {
         )}
 
         {projects && projects.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {projects.map((p) => (
               <Link
                 key={p.id}
