@@ -35,6 +35,8 @@ export interface Article {
   notes: string;
   decision_reason: string;
   is_deleted: boolean;
+  abstract_unavailable?: boolean;
+  origin?: string; // "search" | "reference"
   references_extracted: boolean;
   references_count: number;
   edited_by_user: boolean;

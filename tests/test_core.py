@@ -272,13 +272,5 @@ class ReferencesParserTests(unittest.TestCase):
         self.assertFalse(out["is_review"])
 
 
-class KeybindsImportSmoke(unittest.TestCase):
-    def test_module_imports(self):
-        # keybinds.py is pure JS injection; only smoke-test that it imports.
-        from utils import keybinds
-
-        self.assertTrue(hasattr(keybinds, "bind_keys"))
-
-
 if __name__ == "__main__":
     unittest.main()

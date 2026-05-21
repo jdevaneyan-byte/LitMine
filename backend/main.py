@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -60,6 +60,33 @@ class ArticleEdit(BaseModel):
     decision_reason: Optional[str] = None
 
 
+class ProjectCreate(BaseModel):
+    name: str
+    topic: str
+    type: str = "both"  # review | research | both
+    description: str = ""
+
+
+class SearchRequest(BaseModel):
+    queries: list[str]
+    type: str = "both"  # review | research | both
+    year_from: Optional[int] = None
+    year_to: Optional[int] = None
+    sources: list[str] = ["openalex", "pubmed", "s2", "arxiv"]
+    max_per_source: int = 100
+    title_keyword: str = ""   # comma/newline-separated; empty = no filter
+    match_mode: str = "any"   # any | all
+
+
+# review/research/both maps to the search engine's mode + the stored label.
+_TYPE_TO_MODE = {"review": "reviews", "research": "articles", "both": "both"}
+_TYPE_TO_LABEL = {
+    "review": "Review articles",
+    "research": "Research articles",
+    "both": "Review + research articles",
+}
+
+
 def _article_dict(a: CollectedArticle) -> dict:
     return {
         "id": a.id,
@@ -79,6 +106,8 @@ def _article_dict(a: CollectedArticle) -> dict:
         "notes": a.notes or "",
         "decision_reason": a.decision_reason or "",
         "is_deleted": bool(a.is_deleted),
+        "abstract_unavailable": bool(a.abstract_unavailable),
+        "origin": a.origin or "search",
         "references_extracted": bool(a.references_extracted),
         "references_count": a.references_count or 0,
         "edited_by_user": bool((a.notes or "").startswith("[edited]") or (a.imported_from == "manual-edit")),
@@ -104,6 +133,28 @@ def list_projects():
                 "cited": session.query(CitedArticle).filter_by(project_id=p.id).count(),
             })
         return out
+    finally:
+        session.close()
+
+
+@app.post("/api/projects")
+def create_project(body: ProjectCreate):
+    name = body.name.strip()
+    topic = body.topic.strip()
+    if not name or not topic:
+        raise HTTPException(400, "name and topic are required")
+    session = new_session()
+    try:
+        p = Project(
+            name=name,
+            topic=topic,
+            literature_type=_TYPE_TO_LABEL.get(body.type, _TYPE_TO_LABEL["both"]),
+            description=body.description.strip(),
+            stage=3,  # ready to collect
+        )
+        session.add(p)
+        session.commit()
+        return {"id": p.id, "name": p.name, "topic": p.topic, "literature_type": p.literature_type}
     finally:
         session.close()
 
@@ -134,9 +185,11 @@ def list_articles(
     q: str = "",
     decision: str = "all",
     year_min: int = 0,
+    year_max: int = 0,
     pub_type: str = "all",
     category: str = "all",
     journal: str = "",
+    origin: str = "all",  # all | search | reference
     view: str = "active",  # "active" (default) hides trash; "trash" shows only deleted
     sort: str = "year",
     limit: int = Query(100, le=2000),
@@ -153,12 +206,18 @@ def list_articles(
             query = query.filter(CollectedArticle.title.ilike(f"%{q.strip()}%"))
         if journal.strip():
             query = query.filter(CollectedArticle.venue.ilike(f"%{journal.strip()}%"))
+        if origin == "search":
+            query = query.filter((CollectedArticle.origin == "search") | (CollectedArticle.origin == None))  # noqa: E711
+        elif origin == "reference":
+            query = query.filter(CollectedArticle.origin == "reference")
         if decision == "unscreened":
             query = query.filter(CollectedArticle.screening_status.in_([v for v in UNSCREENED if v is not None]))
         elif decision != "all":
             query = query.filter(CollectedArticle.screening_status == decision)
         if year_min:
             query = query.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= year_min)  # noqa: E711
+        if year_max:
+            query = query.filter(CollectedArticle.year != None).filter(CollectedArticle.year <= year_max)  # noqa: E711
         if pub_type != "all":
             query = query.filter(CollectedArticle.pub_type == pub_type)
         if category != "all":
@@ -324,6 +383,231 @@ def empty_trash(project_id: int):
         session.close()
 
 
+# Bulk actions (keyboard-driven multi-select in the Library)
+
+class BulkDecision(BaseModel):
+    ids: list[int]
+    status: str  # unscreened | include | maybe | exclude
+
+
+class BulkIds(BaseModel):
+    ids: list[int]
+
+
+@app.post("/api/projects/{project_id}/bulk-decision")
+def bulk_decision(project_id: int, body: BulkDecision):
+    if not body.ids:
+        return {"ok": True, "updated": 0}
+    session = new_session()
+    try:
+        n = (
+            session.query(CollectedArticle)
+            .filter(CollectedArticle.project_id == project_id, CollectedArticle.id.in_(body.ids))
+            .update({CollectedArticle.screening_status: body.status}, synchronize_session=False)
+        )
+        session.commit()
+        return {"ok": True, "updated": n}
+    finally:
+        session.close()
+
+
+@app.post("/api/projects/{project_id}/bulk-trash")
+def bulk_trash(project_id: int, body: BulkIds):
+    if not body.ids:
+        return {"ok": True, "updated": 0}
+    session = new_session()
+    try:
+        n = (
+            session.query(CollectedArticle)
+            .filter(CollectedArticle.project_id == project_id, CollectedArticle.id.in_(body.ids))
+            .update(
+                {CollectedArticle.is_deleted: True, CollectedArticle.deleted_at: datetime.now(timezone.utc)},
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+        return {"ok": True, "updated": n}
+    finally:
+        session.close()
+
+
+# Screening stats (decision tallies for the Library summary cards)
+
+@app.get("/api/projects/{project_id}/screening-stats")
+def screening_stats(project_id: int):
+    session = new_session()
+    try:
+        base = (
+            session.query(CollectedArticle)
+            .filter_by(project_id=project_id)
+            .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
+        )
+        unscreened_vals = [v for v in UNSCREENED if v is not None]
+        return {
+            "total": base.count(),
+            "unscreened": base.filter(CollectedArticle.screening_status.in_(unscreened_vals)).count(),
+            "include": base.filter(CollectedArticle.screening_status == "include").count(),
+            "maybe": base.filter(CollectedArticle.screening_status == "maybe").count(),
+            "exclude": base.filter(CollectedArticle.screening_status == "exclude").count(),
+            "from_search": base.filter((CollectedArticle.origin == "search") | (CollectedArticle.origin == None)).count(),  # noqa: E711
+            "from_reference": base.filter(CollectedArticle.origin == "reference").count(),
+            "refs_extracted": base.filter(CollectedArticle.references_extracted == True).count(),  # noqa: E712
+        }
+    finally:
+        session.close()
+
+
+# Reference harvest + analysis (snowballing / gap detection)
+
+class HarvestRequest(BaseModel):
+    article_ids: list[int] = []   # empty = all papers in the project with a DOI
+    scope: str = "all"            # all | included | selected (informational)
+
+
+class CollectRefs(BaseModel):
+    items: list[dict]             # reference entries chosen from the missing list
+
+
+@app.post("/api/projects/{project_id}/harvest-refs")
+def harvest_refs(project_id: int, body: HarvestRequest):
+    from utils.refs_job import find_active_job, start_refs_job
+
+    existing = find_active_job(project_id)
+    if existing:
+        return {"job_id": existing, "already_running": True}
+    return {"job_id": start_refs_job(project_id, body.article_ids), "already_running": False}
+
+
+@app.get("/api/refs/{job_id}")
+def refs_status(job_id: str):
+    from utils.refs_job import get_status
+
+    s = get_status(job_id)
+    if s is None:
+        raise HTTPException(404, "job not found")
+    return s
+
+
+@app.post("/api/refs/{job_id}/cancel")
+def refs_cancel(job_id: str):
+    from utils.refs_job import request_cancel
+
+    request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/refs/active")
+def refs_active(project_id: int):
+    from utils.refs_job import find_active_job
+
+    return {"job_id": find_active_job(project_id)}
+
+
+@app.post("/api/projects/{project_id}/capture-refs")
+def capture_refs(project_id: int, body: HarvestRequest):
+    """Background OpenAlex reference capture (batched). Skips papers already done."""
+    from utils.refs_capture import find_active_job, start_capture_job
+
+    existing = find_active_job(project_id)
+    if existing:
+        return {"job_id": existing, "already_running": True}
+    return {"job_id": start_capture_job(project_id, body.article_ids), "already_running": False}
+
+
+@app.get("/api/capture/{job_id}")
+def capture_status(job_id: str):
+    from utils.refs_capture import get_status
+
+    s = get_status(job_id)
+    if s is None:
+        raise HTTPException(404, "job not found")
+    return s
+
+
+@app.post("/api/capture/{job_id}/cancel")
+def capture_cancel(job_id: str):
+    from utils.refs_capture import request_cancel
+
+    request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/capture/active")
+def capture_active(project_id: int):
+    from utils.refs_capture import find_active_job, latest_result
+
+    return {"job_id": find_active_job(project_id), "latest_result": latest_result(project_id)}
+
+
+@app.post("/api/projects/{project_id}/analysis/build")
+def analysis_build(project_id: int):
+    """Dedupe + cross-match references (local). Auto-copies cross-project
+    matches; returns the de-duplicated 'missing papers' gap list."""
+    from utils.ref_analysis import build_analysis
+
+    return build_analysis(project_id)
+
+
+@app.get("/api/projects/{project_id}/insights")
+def project_insights(project_id: int):
+    """Fast, local corpus analytics: year trend + saturation, top authors/venues,
+    and the foundational core (most internally-cited papers). No API calls."""
+    from utils.insights import build_insights
+
+    return build_insights(project_id)
+
+
+@app.post("/api/projects/{project_id}/collect-refs")
+def collect_refs(project_id: int, body: CollectRefs):
+    """Add chosen missing references to the library (origin='reference')."""
+    from utils.ref_analysis import insert_references
+
+    return {"added": insert_references(project_id, body.items)}
+
+
+# Export (full-metadata download — CSV / JSON / Excel)
+
+@app.get("/api/projects/{project_id}/export")
+def export_articles(
+    project_id: int,
+    format: str = Query("csv", pattern="^(csv|json|xlsx)$"),
+    view: str = "active",  # active (default) | trash | all
+):
+    from utils.excel_export import articles_to_excel, filename_for
+    from utils.export import articles_to_csv, articles_to_json
+
+    session = new_session()
+    try:
+        proj = session.get(Project, project_id)
+        if not proj:
+            raise HTTPException(404, "project not found")
+        query = session.query(CollectedArticle).filter_by(project_id=project_id)
+        if view == "trash":
+            query = query.filter(CollectedArticle.is_deleted == True)  # noqa: E712
+        elif view == "active":
+            query = query.filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
+        rows = query.order_by(CollectedArticle.year.desc().nullslast(), CollectedArticle.id.desc()).all()
+
+        if format == "csv":
+            content: bytes | str = articles_to_csv(rows)
+            media = "text/csv"
+        elif format == "json":
+            content = articles_to_json(rows)
+            media = "application/json"
+        else:
+            content = articles_to_excel(rows)
+            media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        fname = filename_for(proj.name, "library", format)
+    finally:
+        session.close()
+
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 # Data quality (completeness audit + multi-source gap-fill worker)
 
 @app.get("/api/projects/{project_id}/completeness")
@@ -374,6 +658,69 @@ def enrich_active(project_id: int):
     from utils.enrich_job import find_active_job
 
     return {"job_id": find_active_job(project_id)}
+
+
+# Search / collect (exposes the existing background search engine)
+
+@app.post("/api/projects/{project_id}/search")
+def start_search(project_id: int, req: SearchRequest):
+    session = new_session()
+    try:
+        if not session.get(Project, project_id):
+            raise HTTPException(404, "project not found")
+    finally:
+        session.close()
+
+    queries = [q.strip() for q in req.queries if q.strip()]
+    if not queries:
+        raise HTTPException(400, "at least one search query is required")
+
+    from utils.search_job import find_active_job, start_job
+
+    mode = _TYPE_TO_MODE.get(req.type, "both")
+    existing = find_active_job(project_id, mode)
+    if existing:
+        return {"job_id": existing, "already_running": True}
+
+    settings = {
+        "max_per_source": max(1, min(req.max_per_source, 500)),
+        "year_from": req.year_from or 0,
+        "use_openalex": "openalex" in req.sources,
+        "use_pubmed": "pubmed" in req.sources,
+        "use_s2": "s2" in req.sources,
+        "use_arxiv": "arxiv" in req.sources,
+    }
+    job_id = start_job(
+        queries, settings, mode, project_id, req.title_keyword, req.match_mode, req.year_to or 0,
+    )
+    return {"job_id": job_id, "already_running": False}
+
+
+@app.get("/api/search/{job_id}")
+def search_status(job_id: str):
+    from utils.search_job import get_status
+
+    s = get_status(job_id)
+    if s is None:
+        raise HTTPException(404, "job not found")
+    return s
+
+
+@app.post("/api/search/{job_id}/cancel")
+def search_cancel(job_id: str):
+    from utils.search_job import request_cancel
+
+    request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/search/active")
+def search_active(project_id: int, type: str = "both"):
+    # Mode-agnostic so the UI re-attaches after a refresh regardless of the
+    # search type that was used.
+    from utils.search_job import find_active_any
+
+    return {"job_id": find_active_any(project_id)}
 
 
 # Network

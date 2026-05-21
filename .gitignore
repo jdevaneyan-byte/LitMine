@@ -17,9 +17,17 @@ streamlit.log
 search_jobs/
 extract_jobs/
 enrich_jobs/
+capture_jobs/
+refs_jobs/
 uploaded_pdfs/
+# Recovery snapshots of the local DB — never commit.
+*.recovery_copy
 # Personal one-off helper scripts and sample exports — never commit.
 _load_queue.py
+_apply_resolver_run.py
+_restore_project4.py
+fill_missing_metadata_sample.py
+missing_metadata_sample*
 amide_queries.txt
 *_cited_articles.csv
 *_landscape*.json

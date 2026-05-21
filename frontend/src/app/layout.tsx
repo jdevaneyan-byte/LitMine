@@ -41,7 +41,7 @@ export default function RootLayout({
             </span>
           </div>
         </header>
-        <main className="w-full flex-1 px-6 py-6">{children}</main>
+        <main className="w-full flex-1 px-6 pb-6 pt-4">{children}</main>
       </body>
     </html>
   );

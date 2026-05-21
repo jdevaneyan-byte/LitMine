@@ -1,10 +1,18 @@
+import os
 import requests
 import time
 from typing import Optional
 
 BASE_URL = "https://api.openalex.org"
 MAILTO = "research@litmine.app"
-FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id,type,cited_by_count"
+FIELDS = "title,doi,abstract_inverted_index,authorships,publication_year,primary_location,id,type,cited_by_count,referenced_works"
+
+
+def _auth_params() -> dict:
+    """OpenAlex requires an API key since Feb 2026 (the mailto polite pool was
+    retired). Send the key when configured; fall back to mailto otherwise."""
+    key = os.getenv("OPENALEX_API_KEY", "").strip()
+    return {"api_key": key} if key else {"mailto": MAILTO}
 
 
 def _reconstruct_abstract(inverted_index: Optional[dict]) -> str:
@@ -43,6 +51,8 @@ def _parse_work(work: dict) -> dict:
     source_obj = loc.get("source") or {}
     venue = source_obj.get("display_name") or ""
 
+    oa_id = (work.get("id") or "").rsplit("/", 1)[-1] if work.get("id") else ""
+    referenced = work.get("referenced_works") or []
     return {
         "title": title,
         "doi": doi,
@@ -54,6 +64,8 @@ def _parse_work(work: dict) -> dict:
         "pub_type": work.get("type") or "",
         "citation_count": work.get("cited_by_count"),
         "venue": venue,
+        "openalex_id": oa_id,
+        "referenced_ids": [r.rsplit("/", 1)[-1] for r in referenced],
     }
 
 
@@ -101,8 +113,8 @@ def _fetch(topic: str, filters: str, max_results: int) -> list[dict]:
                     "filter": filters,
                     "per-page": per_page,
                     "page": page,
-                    "mailto": MAILTO,
                     "select": FIELDS,
+                    **_auth_params(),
                 },
                 timeout=30,
             )

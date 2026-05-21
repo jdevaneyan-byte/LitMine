@@ -19,6 +19,7 @@ import requests
 
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
 CROSSREF_BASE = "https://api.crossref.org"
+OPENALEX_BASE = "https://api.openalex.org"
 
 S2_REF_FIELDS = (
     "title,year,authors,externalIds,venue,abstract,publicationTypes,openAccessPdf,url"
@@ -52,21 +53,18 @@ def fetch_references(doi: str) -> list[dict]:
     if not doi:
         raise ReferenceFetchError("missing DOI")
 
-    s2_err = None
-    try:
-        refs = _from_semantic_scholar(doi)
-        if refs:
-            return refs
-    except Exception as exc:
-        s2_err = str(exc)
-
-    try:
-        return _from_crossref(doi)
-    except Exception as exc:
-        msg = f"Crossref: {exc}"
-        if s2_err:
-            msg = f"S2: {s2_err} | {msg}"
-        raise ReferenceFetchError(msg) from exc
+    errors = []
+    # Free sources first (Semantic Scholar, Crossref), then OpenAlex as fallback.
+    for name, fn in (("S2", _from_semantic_scholar), ("Crossref", _from_crossref), ("OpenAlex", _from_openalex)):
+        try:
+            refs = fn(doi)
+            if refs:
+                return refs
+        except Exception as exc:
+            errors.append(f"{name}: {exc}")
+    if errors:
+        raise ReferenceFetchError(" | ".join(errors))
+    return []
 
 
 # Semantic Scholar
@@ -134,6 +132,72 @@ def _take_author_names(authors: Iterable[dict], limit: int = 8) -> list[str]:
     return names
 
 
+# OpenAlex (fallback): a paper's referenced_works are clean OA IDs; resolve them
+# to titles in batches of 50 (one call each). The DOI lookup itself is OpenAlex's
+# free "singleton" tier.
+
+def _openalex_auth() -> dict:
+    key = os.getenv("OPENALEX_API_KEY", "").strip()
+    return {"api_key": key} if key else {}
+
+
+def _from_openalex(doi: str) -> list[dict]:
+    try:
+        resp = requests.get(
+            f"{OPENALEX_BASE}/works/https://doi.org/{doi}",
+            params={"select": "referenced_works", **_openalex_auth()},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return []
+        ref_ids = (resp.json() or {}).get("referenced_works") or []
+    except Exception:
+        return []
+    if not ref_ids:
+        return []
+
+    out: list[dict] = []
+    sel = "id,doi,title,publication_year,authorships,primary_location,type"
+    for i in range(0, min(len(ref_ids), 600), 50):
+        batch = ref_ids[i : i + 50]
+        ids = "|".join(b.rsplit("/", 1)[-1] for b in batch)
+        try:
+            r = requests.get(
+                f"{OPENALEX_BASE}/works",
+                params={"filter": f"openalex_id:{ids}", "per-page": 50, "select": sel, **_openalex_auth()},
+                timeout=30,
+            )
+            if r.status_code != 200:
+                continue
+            for w in (r.json() or {}).get("results", []) or []:
+                out.append(_parse_openalex_work(w))
+        except Exception:
+            continue
+        time.sleep(0.1)
+    return [o for o in out if o["title"] or o["doi"]]
+
+
+def _parse_openalex_work(w: dict) -> dict:
+    doi = (w.get("doi") or "").replace("https://doi.org/", "").strip().lower()
+    authors = [a.get("author", {}).get("display_name", "") for a in (w.get("authorships") or [])[:8] if a.get("author")]
+    loc = w.get("primary_location") or {}
+    src = loc.get("source") or {}
+    ptype = (w.get("type") or "").lower()
+    return {
+        "title": (w.get("title") or "").strip(),
+        "doi": doi,
+        "year": _safe_int(w.get("publication_year")),
+        "authors": ", ".join(a for a in authors if a),
+        "venue": (src.get("display_name") or "").strip(),
+        "abstract": "",
+        "url": (loc.get("landing_page_url") or (f"https://doi.org/{doi}" if doi else "")),
+        "is_review": ptype == "review",
+        "is_book": "book" in ptype,
+        "publication_types": ptype,
+        "source": "OpenAlex",
+    }
+
+
 # Crossref
 
 def _from_crossref(doi: str) -> list[dict]:
@@ -193,54 +257,56 @@ def _parse_crossref_ref(ref: dict) -> dict:
 CROSSREF_ENRICH_CAP = 250
 
 
-def _enrich_crossref_refs(refs: list[dict]) -> list[dict]:
-    """For refs that have a DOI but no year/title, look them up individually.
+def _enrich_one_crossref_ref(r: dict) -> None:
+    """Fill one sparse reference (DOI only) with title/year/venue/authors."""
+    try:
+        resp = requests.get(
+            f"{CROSSREF_BASE}/works/{r['doi']}",
+            headers=_crossref_headers(),
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return
+        m = (resp.json() or {}).get("message") or {}
+    except Exception:
+        return
+    if not r["title"]:
+        t = m.get("title") or []
+        r["title"] = (t[0] if t else "").strip()
+    if not r["year"]:
+        issued = (m.get("issued") or {}).get("date-parts") or []
+        if issued and issued[0]:
+            r["year"] = _safe_int(issued[0][0])
+    if not r["venue"]:
+        container = m.get("container-title") or []
+        r["venue"] = (container[0] if container else "").strip()
+    if not r["authors"]:
+        names = []
+        for a in (m.get("author") or [])[:8]:
+            name = " ".join(filter(None, [a.get("given", ""), a.get("family", "")])).strip()
+            if name:
+                names.append(name)
+        r["authors"] = ", ".join(names)
+    ctype = (m.get("type") or "").lower()
+    if ctype:
+        r["publication_types"] = ctype
+    if "review" in ctype:
+        r["is_review"] = True
+    if "book" in ctype or "monograph" in ctype:
+        r["is_book"] = True
 
-    Each lookup is ~50ms; bounded by CROSSREF_ENRICH_CAP per review so a
-    pathologically large reference list can't stall extraction. Any refs
-    beyond the cap are kept as-is."""
+
+def _enrich_crossref_refs(refs: list[dict]) -> list[dict]:
+    """For refs that have a DOI but no year/title, look them up in parallel.
+
+    Bounded by CROSSREF_ENRICH_CAP. Parallelized (8 workers) so a 60-reference
+    list resolves in ~3s instead of ~25s of sequential lookups."""
+    from concurrent.futures import ThreadPoolExecutor
 
     needs = [r for r in refs if r["doi"] and (not r["title"] or not r["year"])][:CROSSREF_ENRICH_CAP]
-    for r in needs:
-        try:
-            resp = requests.get(
-                f"{CROSSREF_BASE}/works/{r['doi']}",
-                headers=_crossref_headers(),
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                continue
-            m = (resp.json() or {}).get("message") or {}
-            if not r["title"]:
-                t = m.get("title") or []
-                r["title"] = (t[0] if t else "").strip()
-            if not r["year"]:
-                issued = (m.get("issued") or {}).get("date-parts") or []
-                if issued and issued[0]:
-                    r["year"] = _safe_int(issued[0][0])
-            if not r["venue"]:
-                container = m.get("container-title") or []
-                r["venue"] = (container[0] if container else "").strip()
-            if not r["authors"]:
-                author_list = m.get("author") or []
-                names = []
-                for a in author_list[:8]:
-                    name = " ".join(filter(None, [a.get("given", ""), a.get("family", "")])).strip()
-                    if name:
-                        names.append(name)
-                r["authors"] = ", ".join(names)
-            ctype = (m.get("type") or "").lower()
-            if ctype:
-                r["publication_types"] = ctype
-            if "review" in ctype:
-                r["is_review"] = True
-            # Crossref types: book, book-chapter, book-part, book-section,
-            # book-set, monograph, reference-book, edited-book.
-            if "book" in ctype or "monograph" in ctype:
-                r["is_book"] = True
-            time.sleep(0.05)
-        except Exception:
-            continue
+    if needs:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_enrich_one_crossref_ref, needs))
     return refs
 
 

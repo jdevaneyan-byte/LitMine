@@ -28,6 +28,7 @@ def start_job(
     project_id: int,
     title_keyword: str = "",   # comma-separated keywords; empty = no filter
     title_match_mode: str = "any",  # "any" or "all"
+    year_to: int = 0,    # upper bound (inclusive); 0 = no upper bound
 ) -> str:
     job_id = str(uuid.uuid4())[:8]
     job_file = JOB_DIR / f"{job_id}.json"
@@ -42,13 +43,14 @@ def start_job(
         "log": [],
         "total_added": 0,
         "total_skipped": 0,
+        "duplicates_removed": 0,
         "done": False,
         "error": None,
     })
 
     thread = threading.Thread(
         target=_run,
-        args=(job_file, queries, settings, mode, project_id, title_keyword, title_match_mode),
+        args=(job_file, queries, settings, mode, project_id, title_keyword, title_match_mode, year_to),
         daemon=True,
     )
     thread.start()
@@ -98,6 +100,25 @@ def find_active_job(project_id: int, mode: str) -> str | None:
     return candidates[0][1]
 
 
+def find_active_any(project_id: int) -> str | None:
+    """Most recent active search job for this project, regardless of mode.
+
+    Lets the UI re-attach its progress panel after a browser refresh even if
+    the search was started with a different type (review/research/both)."""
+    candidates = []
+    for f in JOB_DIR.glob("*.json"):
+        if f.name.startswith("queues_"):
+            continue
+        data = _read_json(f)
+        if data is None or data.get("project_id") != project_id or data.get("done"):
+            continue
+        candidates.append((f.stat().st_mtime, data.get("job_id", f.stem)))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+
 # Internal
 
 def _write(path: Path, data: dict):
@@ -125,7 +146,7 @@ def _title_matches(title: str, keywords: list[str], mode: str = "any") -> bool:
     return any(kw in title_l for kw in keywords)
 
 
-def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_id: int, title_keyword: str = "", title_match_mode: str = "any"):
+def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_id: int, title_keyword: str = "", title_match_mode: str = "any", year_to: int = 0):
     from utils.search_runner import (
         run_review_search_with_status,
         run_article_search_with_status,
@@ -164,6 +185,12 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
             else:
                 skipped_this = 0
 
+            # Apply the upper year bound (year_from is enforced at the API level).
+            if year_to:
+                before_year = len(results)
+                results = [r for r in results if r.get("year") and r["year"] <= year_to]
+                skipped_this += before_year - len(results)
+
             session = new_session()
             try:
                 # The unified Workspace always collects into the library
@@ -201,6 +228,9 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                         venue=art.get("venue", ""),
                         citation_count=art.get("citation_count"),
                         screening_status="unscreened",
+                        origin="search",
+                        openalex_id=art.get("openalex_id", "") or "",
+                        referenced_ids=json.dumps(art.get("referenced_ids") or []),
                     )
                     session.add(record)
                     existing_titles.add(title_l)
@@ -228,6 +258,46 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
             data["total_added"] = total_added
             data["total_skipped"] = total_skipped
             _write(job_file, data)
+
+        # All searches finished — auto-remove fuzzy duplicates that slipped past
+        # the at-insert exact-match dedup (near-identical titles, preprint vs
+        # published, etc.). Metadata from each dropped row is merged into the keeper.
+        try:
+            from utils.find_duplicates import find_clusters, merge_all_clusters
+
+            data = _read_json(job_file) or {}
+            data.setdefault("log", []).append("Removing fuzzy duplicates…")
+            _write(job_file, data)
+            _groups, removed = merge_all_clusters(find_clusters(project_id, max_clusters=100000))
+            data = _read_json(job_file) or {}
+            data["duplicates_removed"] = removed
+            data.setdefault("log", []).append(
+                f"Removed {removed} fuzzy duplicate(s) across {_groups} group(s)."
+            )
+            _write(job_file, data)
+        except Exception as dedup_exc:
+            data = _read_json(job_file) or {}
+            data.setdefault("log", []).append(f"Dedup skipped: {dedup_exc}")
+            _write(job_file, data)
+
+        # Automatically fill missing metadata (abstracts, DOIs, venues, types) in
+        # the background once the search finishes. Runs first so the gap analysis
+        # below sees DOIs that enrichment recovers. Guarded against double-start.
+        try:
+            from utils.enrich_job import find_active_job as _enrich_active
+            from utils.enrich_job import start_enrich_job
+
+            if not _enrich_active(project_id):
+                start_enrich_job(project_id)
+        except Exception:
+            pass
+
+        # NOTE: we deliberately do NOT auto-run the gap/reference analysis here.
+        # The pipeline that runs automatically is search -> collect -> enrich.
+        # Reference-metadata collection is a manual, per-paper action (in the
+        # paper modal); the whole-corpus "Find missing papers" gap analysis is a
+        # manual button on the Analysis tab. Nothing reference-related runs on
+        # its own.
 
         _patch(job_file, done=True, completed=len(queries))
 

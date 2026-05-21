@@ -4,6 +4,16 @@ from sqlalchemy import create_engine, event, Column, Integer, String, Text, Date
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime, timezone
 
+# Load .env so API keys (OpenAlex, Semantic Scholar, …) are available to every
+# entry point that imports the database (backend, worker, scripts), not just
+# the Streamlit/Claude paths. Safe no-op if python-dotenv or .env is absent.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 # Database location is overridable via env var so deployments/tests can point
 # at a different file without editing code. Defaults to a local SQLite file.
 DB_PATH = os.getenv("LITMINE_DB", "litmine.db")
@@ -104,6 +114,16 @@ class CollectedArticle(Base):
     references_json = Column(Text, default="")
     references_extracted = Column(Boolean, default=False)
     references_count = Column(Integer, default=0)
+    # Set by the gap-fill worker when no open source has this paper's abstract,
+    # so a genuinely-paywalled abstract stops being reported as a fixable gap.
+    abstract_unavailable = Column(Boolean, default=False)
+    # How this paper entered the library: "search" (keyword collection) or
+    # "reference" (snowballed from another paper's reference list).
+    origin = Column(String(20), default="search")
+    # OpenAlex work id + the works it cites (OA ids), captured for free during
+    # OpenAlex collection. A background worker resolves these into references_json.
+    openalex_id = Column(String(60), default="")
+    referenced_ids = Column(Text, default="")  # JSON list of OpenAlex ids
     notes = Column(Text, default="")
     tags = Column(String(500), default="")
     screening_status = Column(String(20), default="unscreened")
@@ -229,6 +249,10 @@ def init_db():
         ("collected_articles", "references_json", "TEXT DEFAULT ''"),
         ("collected_articles", "references_extracted", "BOOLEAN DEFAULT 0"),
         ("collected_articles", "references_count", "INTEGER DEFAULT 0"),
+        ("collected_articles", "abstract_unavailable", "BOOLEAN DEFAULT 0"),
+        ("collected_articles", "origin", "VARCHAR(20) DEFAULT 'search'"),
+        ("collected_articles", "openalex_id", "VARCHAR(60) DEFAULT ''"),
+        ("collected_articles", "referenced_ids", "TEXT DEFAULT ''"),
         ("cited_articles", "is_book", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:

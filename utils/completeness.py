@@ -6,20 +6,41 @@ from __future__ import annotations
 
 from database import CollectedArticle, new_session
 
-# Fields a complete record should have. (citation_count/category are nice to
-# have but excluded from "incomplete" so the audit focuses on core metadata.)
-REQUIRED_FIELDS = ["title", "authors", "year", "doi", "abstract", "venue"]
+# Core fields every record should have, regardless of type.
+ALWAYS_REQUIRED = ["title", "authors", "year", "doi", "venue"]
+# An abstract is only *expected* for these publication categories. Book
+# chapters, editorials/notes, datasets and corrections routinely have none,
+# so we don't count a missing abstract against them.
+ABSTRACT_EXPECTED = {"Review", "Research article", "Conference", "Preprint"}
+_CORRECTION_PREFIXES = (
+    "correction", "erratum", "corrigendum", "retraction", "addendum", "publisher correction",
+)
+# Kept for the per-field audit display (abstract is conditional, see below).
+REQUIRED_FIELDS = ALWAYS_REQUIRED + ["abstract"]
 
 
 def _empty(v) -> bool:
     return v is None or (isinstance(v, str) and not v.strip())
 
 
+def abstract_required(article) -> bool:
+    """Whether this record is the kind that should carry an abstract."""
+    title = (getattr(article, "title", "") or "").strip().lower()
+    if title.startswith(_CORRECTION_PREFIXES):
+        return False
+    return (getattr(article, "category", "") or "").strip() in ABSTRACT_EXPECTED
+
+
 def missing_fields(article) -> list[str]:
-    out = []
-    for f in REQUIRED_FIELDS:
-        if _empty(getattr(article, f, None)):
-            out.append(f)
+    out = [f for f in ALWAYS_REQUIRED if _empty(getattr(article, f, None))]
+    # Abstract counts as missing only when it's expected for this type and we
+    # haven't already established that no open source has it.
+    if (
+        abstract_required(article)
+        and _empty(getattr(article, "abstract", None))
+        and not getattr(article, "abstract_unavailable", False)
+    ):
+        out.append("abstract")
     return out
 
 

@@ -1,7 +1,8 @@
 """Background data-quality worker: walks the incomplete articles of a project
 and fills their missing fields by cascading across open sources (Crossref ->
-OpenAlex -> Semantic Scholar). Only papers with a DOI are auto-filled; the
-rest are reported as needing manual attention.
+OpenAlex -> Semantic Scholar -> Europe PMC). Papers with a DOI are matched
+directly; papers without one get a DOI recovered from their title (strictly
+matched) first, so they can be filled too.
 
 Progress/cancel use the shared job_io helpers (atomic writes + cancel token).
 """
@@ -70,7 +71,7 @@ def find_active_job(project_id: int) -> str | None:
 
 def _run(job_file: Path, project_id: int):
     from database import init_db, new_session, CollectedArticle
-    from utils.completeness import missing_fields
+    from utils.completeness import _empty, abstract_required, missing_fields
     from utils.enrich import fill_gaps
 
     init_db()
@@ -83,8 +84,9 @@ def _run(job_file: Path, project_id: int):
                 .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
                 .all()
             )
-            # Only incomplete records with a DOI can be auto-filled.
-            targets = [a.id for a in rows if missing_fields(a) and (a.doi or "").strip()]
+            # Every incomplete record is a target: ones with a DOI are matched
+            # directly, ones without get a DOI recovered from their title.
+            targets = [a.id for a in rows if missing_fields(a)]
         finally:
             session.close()
 
@@ -121,12 +123,35 @@ def _run(job_file: Path, project_id: int):
                 session.close()
 
             filled = fill_gaps(rec)
+            # We queried every open source by DOI but still have no abstract:
+            # record that so it stops being reported as a fixable gap.
+            abstract_exhausted = bool((rec.get("doi") or "").strip()) and _empty(rec.get("abstract"))
 
-            if filled:
+            if filled or abstract_exhausted:
                 session = new_session()
                 try:
                     art = session.get(CollectedArticle, art_id)
                     if art is not None:
+                        # A recovered DOI that already belongs to another record in
+                        # this project means this row is a duplicate — keep the rest
+                        # of the metadata but don't write the colliding DOI.
+                        if "doi" in filled:
+                            dup = (
+                                session.query(CollectedArticle.id)
+                                .filter(
+                                    CollectedArticle.project_id == art.project_id,
+                                    CollectedArticle.doi == rec["doi"],
+                                    CollectedArticle.id != art.id,
+                                )
+                                .first()
+                            )
+                            if dup:
+                                filled = [f for f in filled if f != "doi"]
+                                data = _read_json(job_file) or {}
+                                data.setdefault("log", []).append(
+                                    f"[{i+1}] DOI {rec['doi']} already on #{dup[0]} — duplicate; DOI not written"
+                                )
+                                _write(job_file, data)
                         for f in filled:
                             setattr(art, f, rec[f])
                         # Refresh the normalized category if the type was filled.
@@ -134,9 +159,21 @@ def _run(job_file: Path, project_id: int):
                             from utils.pub_category import categorize
 
                             art.category = categorize(art.pub_type, art.source, art.title)
-                        session.commit()
-                        improved += 1
-                        filled_total += len(filled)
+                        # Only flag types that were expected to have an abstract.
+                        if abstract_exhausted and abstract_required(art):
+                            art.abstract_unavailable = True
+                        try:
+                            session.commit()
+                            if filled:
+                                improved += 1
+                                filled_total += len(filled)
+                        except Exception as commit_exc:  # never let one row kill the run
+                            session.rollback()
+                            data = _read_json(job_file) or {}
+                            data.setdefault("log", []).append(
+                                f"[{i+1}] skipped (write conflict): {commit_exc.__class__.__name__}"
+                            )
+                            _write(job_file, data)
                 finally:
                     session.close()
 
