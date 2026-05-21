@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { editArticle, extractReferences, getArticle, trashArticle, type ScreeningStats } from "@/lib/api";
+import { collectAllReferences, editArticle, extractReferences, getArticle, trashArticle, type ScreeningStats } from "@/lib/api";
 import type { Article } from "@/lib/types";
 import ReferencesPanel from "./ReferencesPanel";
 
@@ -47,6 +47,8 @@ export default function ArticleModal({
   const [busy, setBusy] = useState(false);
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [refsToken, setRefsToken] = useState(0); // bumped when references are (re)fetched
+  const [collectingAll, setCollectingAll] = useState(false);
+  const [collectMsg, setCollectMsg] = useState<string | null>(null);
 
   // Always fetch fresh detail (incl. persisted references).
   useEffect(() => {
@@ -126,6 +128,27 @@ export default function ArticleModal({
       setLoadingRefs(false);
     }
   }, [articleId]);
+
+  const collectAll = useCallback(async () => {
+    setCollectingAll(true);
+    setCollectMsg(null);
+    try {
+      const r = await collectAllReferences(articleId);
+      setCollectMsg(
+        r.added > 0
+          ? `Added ${r.added} to the library${r.linked - r.added > 0 ? ` · ${r.linked - r.added} already there` : ""}.`
+          : r.linked > 0
+            ? `All ${r.linked} resolvable references were already in your library.`
+            : "Nothing to collect — references have no DOI to resolve.",
+      );
+      setRefsToken((t) => t + 1); // refresh side panel
+      onChanged?.(); // refresh the library counts
+    } catch (e) {
+      setCollectMsg(`Could not collect: ${e}`);
+    } finally {
+      setCollectingAll(false);
+    }
+  }, [articleId, onChanged]);
 
   const remove = useCallback(async () => {
     setBusy(true);
@@ -306,17 +329,25 @@ export default function ArticleModal({
                           className="btn px-2 py-1 text-xs disabled:opacity-40"
                           onClick={extract}
                           disabled={loadingRefs || !a.doi}
-                          title="Collect this paper's reference list now"
+                          title="Fetch this paper's reference list (then collect them into the library)"
                         >
-                          {loadingRefs ? "Collecting…" : "Collect references"}
+                          {loadingRefs ? "Fetching…" : "Fetch reference list"}
                         </button>
                       )}
                     </div>
-                    {a.references_error && <div className="text-xs text-[#b91c1c]">{a.references_error}</div>}
+                    {a.references_error && <div className="text-xs text-[var(--danger)]">{a.references_error}</div>}
                     {(a.references_count ?? 0) > 0 && (
-                      <div className="text-xs text-[var(--muted)]">
-                        {a.references_count} references — listed in the panel
-                        <span className="hidden lg:inline"> on the right</span>, where you can collect them.
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button className="btn btn-primary px-2.5 py-1 text-xs disabled:opacity-50" onClick={collectAll} disabled={collectingAll}>
+                            {collectingAll ? "Collecting…" : "Collect all into library"}
+                          </button>
+                          <span className="text-xs text-[var(--muted)]">
+                            {a.references_count} references fetched
+                            <span className="hidden lg:inline"> — or pick individual ones in the panel on the right</span>.
+                          </span>
+                        </div>
+                        {collectMsg && <div className="text-xs font-medium text-[var(--success)]">{collectMsg}</div>}
                       </div>
                     )}
                     {!a.doi && <div className="text-xs italic text-[var(--muted)]">No DOI — references can&apos;t be collected.</div>}
