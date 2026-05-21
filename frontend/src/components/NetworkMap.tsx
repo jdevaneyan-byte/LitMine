@@ -41,6 +41,17 @@ function endId(x: string | FNode): string {
   return typeof x === "object" ? x.id : x;
 }
 
+// Old → new as a blue→amber ramp, so the citation graph's temporal structure is
+// visible at a glance (foundational older work vs. recent papers).
+function yearColor(year: number | null | undefined, min: number, max: number): string {
+  if (!year || max <= min) return "#94a3b8";
+  const t = Math.max(0, Math.min(1, (year - min) / (max - min)));
+  const a = [37, 99, 235]; // #2563eb blue (older)
+  const b = [245, 158, 11]; // #f59e0b amber (newer)
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
 export default function NetworkMap({
   projectId,
   onOpenPaper,
@@ -104,9 +115,13 @@ export default function NetworkMap({
     const keep = new Set(
       [...net.nodes].sort((a, b) => b.weight - a.weight).slice(0, maxNodes).map((n) => n.id),
     );
+    // Journal flows are extremely dense (every venue cites every other), so keep
+    // only the meaningful ones; otherwise the graph is an unreadable hairball.
+    const minEdgeWeight = mode === "journal" ? 3 : 1;
     const adj = new Map<string, Set<string>>();
     const flinks: FLink[] = [];
     net.edges.forEach((e) => {
+      if ((e.weight ?? 1) < minEdgeWeight) return;
       if (keep.has(e.source) && keep.has(e.target)) {
         flinks.push({ source: e.source, target: e.target, type: e.type });
         if (!adj.has(e.source)) adj.set(e.source, new Set());
@@ -120,7 +135,7 @@ export default function NetworkMap({
     const fnodes = connected.map((id) => ({ ...(byId.get(id) as GraphNode) }));
     const finalLinks = flinks.filter((l) => present.has(endId(l.source)) && present.has(endId(l.target)));
     return { nodes: fnodes, links: finalLinks, adjacency: adj, nodeById: byId };
-  }, [net, maxNodes]);
+  }, [net, maxNodes, mode]);
 
   const neighbors = useMemo(
     () => (selectedId ? adjacency.get(selectedId) ?? new Set<string>() : new Set<string>()),
@@ -134,6 +149,31 @@ export default function NetworkMap({
     [nodes],
   );
 
+  // Only the heaviest nodes carry an always-on label; everything else reveals
+  // its label on hover or when you zoom in. This is what keeps the canvas from
+  // turning into text soup.
+  const maxWeight = useMemo(() => Math.max(1, ...nodes.map((n) => n.weight)), [nodes]);
+  const labeled = useMemo(
+    () => new Set([...nodes].sort((a, b) => b.weight - a.weight).slice(0, 14).map((n) => n.id)),
+    [nodes],
+  );
+  const yearSpan = useMemo(() => {
+    const ys = nodes.map((n) => n.year).filter((y): y is number => typeof y === "number");
+    return ys.length ? { min: Math.min(...ys), max: Math.max(...ys) } : { min: 0, max: 0 };
+  }, [nodes]);
+
+  // Spread the graph out so clusters separate instead of piling into a blob.
+  useEffect(() => {
+    const fg = fgRef.current as unknown as {
+      d3Force?: (n: string) => { strength: (v: number) => void } | undefined;
+      d3ReheatSimulation?: () => void;
+    } | null;
+    if (fg?.d3Force) {
+      fg.d3Force("charge")?.strength(-110);
+      fg.d3ReheatSimulation?.();
+    }
+  }, [nodes]);
+
   const focus = useCallback((n: FNode) => {
     if (fgRef.current && n.x != null && n.y != null) {
       fgRef.current.centerAt(n.x, n.y, 600);
@@ -141,7 +181,13 @@ export default function NetworkMap({
     }
   }, []);
 
-  const sizeOf = (n: GraphNode) => 2 + Math.sqrt(n.weight) * 1.6;
+  // Radius normalized into a tight range so the biggest hub isn't a giant blob.
+  const sizeOf = useCallback((n: GraphNode) => 3 + 10 * Math.sqrt(n.weight / maxWeight), [maxWeight]);
+  // Citation nodes are colored by year (old → new); others by their kind.
+  const colorOf = useCallback(
+    (n: GraphNode) => (mode === "citation" ? yearColor(n.year, yearSpan.min, yearSpan.max) : TYPE_COLOR[n.type] ?? "#6366f1"),
+    [mode, yearSpan],
+  );
 
   return (
     <div>
@@ -197,7 +243,19 @@ export default function NetworkMap({
           </span>
         )}
       </div>
-      <p className="mb-2 text-xs text-[var(--muted)]">{MODES.find((m) => m.key === mode)?.purpose}</p>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
+        <span>{MODES.find((m) => m.key === mode)?.purpose}</span>
+        {mode === "citation" && yearSpan.max > yearSpan.min && (
+          <span className="flex items-center gap-1.5">
+            <span className="tabular-nums">{yearSpan.min}</span>
+            <span
+              className="h-2 w-20 rounded-full"
+              style={{ background: "linear-gradient(90deg, rgb(37,99,235), rgb(245,158,11))" }}
+            />
+            <span className="tabular-nums">{yearSpan.max}</span>
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[230px_minmax(0,1fr)_300px]">
         {/* Left: ranked list */}
@@ -243,39 +301,61 @@ export default function NetworkMap({
               width={dims.w}
               height={dims.h}
               graphData={{ nodes, links }}
-              cooldownTicks={120}
-              nodeRelSize={1}
-              nodeVal={(n: FNode) => sizeOf(n)}
+              cooldownTicks={150}
+              d3VelocityDecay={0.35}
               nodeLabel={(n: FNode) => `${n.label}${n.year ? ` (${n.year})` : ""}`}
               linkColor={(l: FLink) =>
                 selectedId && (endId(l.source) === selectedId || endId(l.target) === selectedId)
-                  ? "rgba(99,102,241,0.55)"
-                  : "rgba(120,130,150,0.15)"
+                  ? "rgba(99,102,241,0.6)"
+                  : "rgba(120,130,150,0.10)"
               }
-              linkWidth={(l: FLink) => (selectedId && (endId(l.source) === selectedId || endId(l.target) === selectedId) ? 1.5 : 0.5)}
-              linkDirectionalArrowLength={mode === "journal" || mode === "citation" ? 2.5 : 0}
+              linkWidth={(l: FLink) => (selectedId && (endId(l.source) === selectedId || endId(l.target) === selectedId) ? 1.5 : 0.4)}
+              linkDirectionalArrowLength={(l: FLink) =>
+                (mode === "journal" || mode === "citation") && selectedId && (endId(l.source) === selectedId || endId(l.target) === selectedId) ? 3 : 0
+              }
               linkDirectionalArrowRelPos={1}
               onNodeClick={(n: FNode) => {
                 setSelectedId(n.id);
                 focus(n);
               }}
               onBackgroundClick={() => setSelectedId(null)}
+              nodePointerAreaPaint={(n: FNode, color: string, ctx: CanvasRenderingContext2D) => {
+                // Hit area must match the drawn circle, or clicks/hover won't register.
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(n.x ?? 0, n.y ?? 0, sizeOf(n), 0, 2 * Math.PI);
+                ctx.fill();
+              }}
               nodeCanvasObject={(n: FNode, ctx: CanvasRenderingContext2D, scale: number) => {
                 const r = sizeOf(n);
-                const dim = selectedId && n.id !== selectedId && !neighbors.has(n.id);
-                ctx.globalAlpha = dim ? 0.25 : 1;
+                const sel = n.id === selectedId;
+                const dim = !!selectedId && !sel && !neighbors.has(n.id);
+                ctx.globalAlpha = dim ? 0.12 : 1;
                 ctx.beginPath();
                 ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, 2 * Math.PI);
-                ctx.fillStyle = n.id === selectedId ? "#111827" : TYPE_COLOR[n.type] ?? "#6366f1";
+                ctx.fillStyle = sel ? "#111827" : colorOf(n);
                 ctx.fill();
-                // Label only for larger nodes or when zoomed in, to stay legible.
-                if ((r > 5 || scale > 2.5 || n.id === selectedId) && !dim) {
-                  const label = (n.label || "").slice(0, 40);
-                  ctx.font = `${Math.max(3, 11 / scale)}px sans-serif`;
-                  ctx.fillStyle = "#374151";
+                if (sel) {
+                  ctx.lineWidth = 1.5 / scale;
+                  ctx.strokeStyle = "#111827";
+                  ctx.stroke();
+                }
+                // Show a label only for top nodes, the selection + its neighbors,
+                // or once zoomed in — with a white halo so it stays readable.
+                const show = !dim && (sel || neighbors.has(n.id) || labeled.has(n.id) || scale > 4.5);
+                if (show) {
+                  const label = (n.label || "").slice(0, 42);
+                  const fs = Math.max(9 / scale, 2.6);
+                  ctx.font = `${fs}px sans-serif`;
+                  const w = ctx.measureText(label).width;
+                  const lx = (n.x ?? 0) + r + 1.5 / scale;
+                  const ly = n.y ?? 0;
+                  ctx.fillStyle = "rgba(255,255,255,0.82)";
+                  ctx.fillRect(lx - 0.5, ly - fs / 2 - 0.5, w + 1, fs + 1);
+                  ctx.fillStyle = "#1f2937";
                   ctx.textAlign = "left";
                   ctx.textBaseline = "middle";
-                  ctx.fillText(label, (n.x ?? 0) + r + 1, n.y ?? 0);
+                  ctx.fillText(label, lx, ly);
                 }
                 ctx.globalAlpha = 1;
               }}
