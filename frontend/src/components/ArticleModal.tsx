@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { editArticle, extractReferences, getArticle, trashArticle, type ScreeningStats } from "@/lib/api";
 import type { Article } from "@/lib/types";
+import ReferencesPanel from "./ReferencesPanel";
 
 const DECISIONS = [
   ["unscreened", "Unscreened", "var(--muted)"],
@@ -24,6 +25,7 @@ export default function ArticleModal({
   onDelete,
   onClose,
   onChanged,
+  onOpenArticle,
 }: {
   articleId: number;
   initial?: Article | null;
@@ -37,12 +39,14 @@ export default function ArticleModal({
   onDelete?: () => void;
   onClose: () => void;
   onChanged?: () => void;
+  onOpenArticle?: (id: number) => void;
 }) {
   const [a, setA] = useState<Article | null>(initial ?? null);
   const [editing, setEditing] = useState(startInEdit);
   const [draft, setDraft] = useState<Partial<Article>>(initial ?? {});
   const [busy, setBusy] = useState(false);
   const [loadingRefs, setLoadingRefs] = useState(false);
+  const [refsToken, setRefsToken] = useState(0); // bumped when references are (re)fetched
 
   // Always fetch fresh detail (incl. persisted references).
   useEffect(() => {
@@ -115,6 +119,7 @@ export default function ArticleModal({
     try {
       const res = await extractReferences(articleId);
       setA((d) => (d ? { ...d, references: res.references, references_count: res.count } : d));
+      setRefsToken((t) => t + 1); // refresh the companion panel
     } catch (e) {
       setA((d) => (d ? { ...d, references_error: String(e) } : d));
     } finally {
@@ -308,14 +313,11 @@ export default function ArticleModal({
                       )}
                     </div>
                     {a.references_error && <div className="text-xs text-[#b91c1c]">{a.references_error}</div>}
-                    {a.references && a.references.length > 0 && (
-                      <ol className="max-h-48 list-decimal space-y-1 overflow-y-auto pl-5 text-xs text-[var(--muted)]">
-                        {a.references.slice(0, 200).map((r, i) => (
-                          <li key={i}>
-                            {r.title || r.doi || "—"} {r.year ? `(${r.year})` : ""}
-                          </li>
-                        ))}
-                      </ol>
+                    {(a.references_count ?? 0) > 0 && (
+                      <div className="text-xs text-[var(--muted)]">
+                        {a.references_count} references — listed in the panel
+                        <span className="hidden lg:inline"> on the right</span>, where you can collect them.
+                      </div>
                     )}
                     {!a.doi && <div className="text-xs italic text-[var(--muted)]">No DOI — references can&apos;t be collected.</div>}
                   </div>
@@ -353,6 +355,18 @@ export default function ArticleModal({
           </>
         )}
       </div>
+
+      {/* References companion panel — parallel to the modal, when refs exist */}
+      {a && (a.references_count ?? 0) > 0 && !editing && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <ReferencesPanel
+            articleId={articleId}
+            reloadToken={refsToken}
+            onChanged={onChanged}
+            onOpenArticle={onOpenArticle}
+          />
+        </div>
+      )}
 
       {/* Next — narrow, vertically centered (same level as Prev) */}
       <button

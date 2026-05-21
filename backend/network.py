@@ -1,30 +1,50 @@
-"""Build network graphs for a project from data already in the database.
+"""Build network graphs for a project from the collected corpus.
+
+Rebuilt to read `CollectedArticle` (the search/reference library) instead of the
+retired Streamlit tables — search-based projects have no CuratedReview /
+CitedArticle rows, which is why the old builder rendered blank.
 
 Three modes, all derived from existing rows (no new API calls):
 
-- "citation": curated reviews -> the references they cite. A cited paper's
-  node weight is the number of distinct reviews that cite it ("cited more").
+- "citation": paper -> paper, from `referenced_ids` (OpenAlex ids). An edge
+  A->B exists when B's OpenAlex id appears in A's reference ids and both are in
+  the corpus. Node weight = in-degree (how many of your papers cite it).
 - "author":   co-authorship — authors linked when they share a paper.
-- "journal":  journal-to-journal — a review's journal linked to the venue of
-  each paper it cites, weighted by how often.
+- "journal":  venue -> venue, aggregated from the citation edges (citing
+  paper's venue cites the cited paper's venue).
 
-Returns Cytoscape-friendly dicts: {"nodes": [...], "edges": [...], "stats": {...}}.
-Node/edge sizes are pre-computed so the frontend can render directly.
+Optional filters narrow the corpus first: year range, included-only, and a
+minimum global citation count.
+
+Returns {"nodes": [...], "edges": [...], "stats": {...}}; sizes pre-computed.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter, defaultdict
 from itertools import combinations
 
-from database import CitedArticle, CollectedArticle, CuratedReview, new_session
+from database import CollectedArticle, new_session
 
 MAX_NODES = 800  # cap so the browser graph stays responsive
 
 
 def _norm(s: str | None) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def _short(oa: str | None) -> str:
+    return (oa or "").rsplit("/", 1)[-1]
+
+
+def _ref_ids(raw: str | None) -> list[str]:
+    try:
+        v = json.loads(raw or "[]")
+        return [_short(x) for x in v] if isinstance(v, list) else []
+    except Exception:
+        return []
 
 
 def _split_authors(raw: str | None) -> list[str]:
@@ -34,125 +54,134 @@ def _split_authors(raw: str | None) -> list[str]:
     out = []
     for part in cleaned.split(","):
         name = _norm(part)
-        if name and name.lower() != "et al." and not name.lower().startswith("et al"):
+        if name and not name.lower().startswith("et al"):
             out.append(name)
     return out
 
 
-def build_network(project_id: int, mode: str = "citation") -> dict:
-    if mode == "author":
-        return _author_network(project_id)
-    if mode == "journal":
-        return _journal_network(project_id)
-    return _citation_network(project_id)
-
-
-# Citation: review -> cited reference
-
-def _citation_network(project_id: int) -> dict:
+def _load_rows(project_id: int, year_min: int, year_max: int, included_only: bool, min_citations: int):
     session = new_session()
     try:
-        reviews = session.query(CuratedReview).filter_by(project_id=project_id).all()
-        cited = (
-            session.query(CitedArticle)
-            .filter_by(project_id=project_id, status="kept")
-            .all()
+        q = (
+            session.query(CollectedArticle)
+            .filter_by(project_id=project_id)
+            .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
         )
+        if year_min:
+            q = q.filter(CollectedArticle.year != None).filter(CollectedArticle.year >= year_min)  # noqa: E711
+        if year_max:
+            q = q.filter(CollectedArticle.year != None).filter(CollectedArticle.year <= year_max)  # noqa: E711
+        if included_only:
+            q = q.filter(CollectedArticle.screening_status == "include")
+        if min_citations:
+            q = q.filter(CollectedArticle.citation_count != None).filter(  # noqa: E711
+                CollectedArticle.citation_count >= min_citations
+            )
+        return [
+            {
+                "id": a.id,
+                "title": a.title or "",
+                "year": a.year,
+                "doi": a.doi or "",
+                "venue": _norm(a.venue),
+                "oa": a.openalex_id or "",
+                "refs": a.referenced_ids or "",
+                "authors": a.authors or "",
+                "citation_count": a.citation_count,
+                "origin": a.origin or "search",
+            }
+            for a in q.all()
+        ]
     finally:
         session.close()
 
-    # How many distinct reviews cite each paper (by DOI, else normalized title).
-    def cited_key(a):
-        return (a.doi or "").lower() or _norm(a.title).lower()
 
-    citers = defaultdict(set)
-    for a in cited:
-        citers[cited_key(a)].add(a.curated_review_id)
+def build_network(
+    project_id: int,
+    mode: str = "citation",
+    year_min: int = 0,
+    year_max: int = 0,
+    included_only: bool = False,
+    min_citations: int = 0,
+) -> dict:
+    rows = _load_rows(project_id, year_min, year_max, included_only, min_citations)
+    if mode == "author":
+        return _author_network(rows)
+    if mode == "journal":
+        return _journal_network(rows)
+    return _citation_network(rows)
 
-    nodes, edges = [], []
-    seen = set()
 
-    for r in reviews:
-        nid = f"R{r.id}"
+# Citation: paper -> paper, from referenced_ids
+
+def _citation_network(rows: list[dict]) -> dict:
+    oa_to_id = {r["oa"]: r["id"] for r in rows if r["oa"]}
+    by_id = {r["id"]: r for r in rows}
+
+    # Directed edges + in-degree (how many corpus papers cite each target).
+    edge_pairs = set()
+    indeg: Counter[int] = Counter()
+    for r in rows:
+        for cid in _ref_ids(r["refs"]):
+            tgt = oa_to_id.get(cid)
+            if tgt and tgt != r["id"]:
+                edge_pairs.add((r["id"], tgt))
+    for _src, tgt in edge_pairs:
+        indeg[tgt] += 1
+
+    # Keep nodes that participate in at least one edge, ranked by in-degree.
+    connected = {s for s, _ in edge_pairs} | {t for _, t in edge_pairs}
+    ranked = sorted(connected, key=lambda i: -indeg.get(i, 0))
+    kept = set(ranked[:MAX_NODES])
+
+    nodes = []
+    for nid in kept:
+        r = by_id[nid]
         nodes.append({
-            "id": nid,
-            "label": (r.title or f"Review {r.id}")[:90],
-            "type": "review",
-            "year": r.year,
-            "doi": r.doi or "",
-            "weight": 3,
+            "id": str(nid),
+            "article_id": nid,
+            "label": (r["title"] or "")[:90],
+            "type": "reference" if r["origin"] == "reference" else "paper",
+            "year": r["year"],
+            "doi": r["doi"],
+            "weight": 1 + indeg.get(nid, 0),
+            "cited_by_count": indeg.get(nid, 0),
         })
-        seen.add(nid)
-
-    # Add cited papers, sized by how many reviews cite them; keep the most-cited.
-    by_key: dict[str, CitedArticle] = {}
-    for a in cited:
-        by_key.setdefault(cited_key(a), a)
-    ranked = sorted(by_key.items(), key=lambda kv: -len(citers[kv[0]]))
-    kept_keys = set()
-    for key, a in ranked[: MAX_NODES - len(reviews)]:
-        nid = f"C{a.id}"
-        kept_keys.add(key)
-        nodes.append({
-            "id": nid,
-            "label": (a.title or "")[:90],
-            "type": "review-ref" if a.is_review else "paper",
-            "year": a.year,
-            "doi": a.doi or "",
-            "weight": 1 + len(citers[key]),  # cited-more = bigger
-            "cited_by_count": len(citers[key]),
-        })
-
-    # Edges review -> cited (only for kept cited nodes).
-    key_to_node = {cited_key(a): f"C{a.id}" for a in by_key.values()}
-    for a in cited:
-        key = cited_key(a)
-        if key not in kept_keys:
-            continue
-        edges.append({
-            "source": f"R{a.curated_review_id}",
-            "target": key_to_node[key],
-            "type": "cites",
-        })
-
+    edges = [
+        {"source": str(s), "target": str(t), "type": "cites"}
+        for (s, t) in edge_pairs
+        if s in kept and t in kept
+    ]
     return {
         "mode": "citation",
         "nodes": nodes,
         "edges": edges,
         "stats": {
-            "reviews": len(reviews),
-            "cited_nodes": len(kept_keys),
+            "papers": len(rows),
+            "nodes": len(nodes),
             "edges": len(edges),
-            "truncated": len(by_key) > (MAX_NODES - len(reviews)),
+            "truncated": len(connected) > MAX_NODES,
         },
     }
 
 
 # Author co-authorship
 
-def _author_network(project_id: int) -> dict:
-    session = new_session()
-    try:
-        rows = session.query(CollectedArticle).filter_by(project_id=project_id).all()
-        if not rows:
-            rows = session.query(CitedArticle).filter_by(project_id=project_id, status="kept").all()
-    finally:
-        session.close()
-
-    paper_count = Counter()
-    co = Counter()
+def _author_network(rows: list[dict]) -> dict:
+    paper_count: Counter[str] = Counter()
+    co: Counter[tuple[str, str]] = Counter()
     for r in rows:
-        authors = _split_authors(getattr(r, "authors", ""))[:10]
+        authors = _split_authors(r["authors"])[:10]
         for a in authors:
             paper_count[a] += 1
         for a, b in combinations(sorted(set(authors)), 2):
             co[(a, b)] += 1
 
-    top_authors = [a for a, _ in paper_count.most_common(MAX_NODES)]
-    keep = set(top_authors)
+    top = [a for a, _ in paper_count.most_common(MAX_NODES)]
+    keep = set(top)
     nodes = [
         {"id": a, "label": a, "type": "author", "weight": 1 + paper_count[a], "papers": paper_count[a]}
-        for a in top_authors
+        for a in top
     ]
     edges = [
         {"source": a, "target": b, "type": "coauthor", "weight": n}
@@ -167,28 +196,29 @@ def _author_network(project_id: int) -> dict:
     }
 
 
-# Journal-to-journal citation
+# Journal-to-journal, aggregated from citation edges
 
-def _journal_network(project_id: int) -> dict:
-    session = new_session()
-    try:
-        reviews = {r.id: r for r in session.query(CuratedReview).filter_by(project_id=project_id).all()}
-        cited = session.query(CitedArticle).filter_by(project_id=project_id, status="kept").all()
-    finally:
-        session.close()
+def _journal_network(rows: list[dict]) -> dict:
+    oa_to_id = {r["oa"]: r["id"] for r in rows if r["oa"]}
+    by_id = {r["id"]: r for r in rows}
 
-    paper_count = Counter()
-    flow = Counter()
-    for a in cited:
-        dest = _norm(a.venue)
-        if dest:
-            paper_count[dest] += 1
-        review = reviews.get(a.curated_review_id)
-        src = _norm(review.journal) if review else ""
-        if src and dest and src != dest:
-            flow[(src, dest)] += 1
-        if src:
-            paper_count[src] += 0  # ensure source journals appear
+    paper_count: Counter[str] = Counter()
+    for r in rows:
+        if r["venue"]:
+            paper_count[r["venue"]] += 1
+
+    flow: Counter[tuple[str, str]] = Counter()
+    for r in rows:
+        src = r["venue"]
+        if not src:
+            continue
+        for cid in _ref_ids(r["refs"]):
+            tgt_id = oa_to_id.get(cid)
+            if not tgt_id or tgt_id == r["id"]:
+                continue
+            dst = by_id[tgt_id]["venue"]
+            if dst and dst != src:
+                flow[(src, dst)] += 1
 
     top = [j for j, _ in paper_count.most_common(MAX_NODES)]
     keep = set(top)

@@ -2,10 +2,12 @@ import type {
   Article,
   ArticlePage,
   Network,
+  NetworkFilters,
   NetworkMode,
   Project,
   ProjectSummary,
   Reference,
+  ReferencePanel,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -116,8 +118,26 @@ export async function editArticle(id: number, patch: Partial<Article>): Promise<
   return res.json();
 }
 
-export async function getNetwork(projectId: number, mode: NetworkMode): Promise<Network> {
-  return get<Network>(`/api/projects/${projectId}/network?mode=${mode}`);
+export async function getNetwork(projectId: number, mode: NetworkMode, filters: NetworkFilters = {}): Promise<Network> {
+  const p = new URLSearchParams({ mode });
+  if (filters.year_min) p.set("year_min", String(filters.year_min));
+  if (filters.year_max) p.set("year_max", String(filters.year_max));
+  if (filters.included_only) p.set("included_only", "true");
+  if (filters.min_citations) p.set("min_citations", String(filters.min_citations));
+  return get<Network>(`/api/projects/${projectId}/network?${p.toString()}`);
+}
+
+// References companion panel.
+export function getArticleReferences(id: number): Promise<ReferencePanel> {
+  return get<ReferencePanel>(`/api/articles/${id}/references`);
+}
+export function collectReference(id: number, doi: string): Promise<{ added: number; linked: number; error?: string }> {
+  return postJson(`/api/articles/${id}/references/collect`, { doi });
+}
+export function collectAllReferences(
+  id: number,
+): Promise<{ added: number; linked: number; resolved: number; requested: number }> {
+  return postJson(`/api/articles/${id}/references/collect-all`, {});
 }
 
 export interface Completeness {

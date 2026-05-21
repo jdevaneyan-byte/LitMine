@@ -214,7 +214,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           }}
         />
       )}
-      {tab === "network" && <NetworkMap projectId={projectId} />}
+      {tab === "network" && (
+        <NetworkMap
+          projectId={projectId}
+          onOpenPaper={(id) => {
+            setTab("library");
+            focusInLibrary(id, false);
+          }}
+        />
+      )}
       {tab === "trash" && <Trash projectId={projectId} />}
 
       <CommandPalette open={paletteOpen} commands={commands} onSearch={searchPapers} onClose={() => setPaletteOpen(false)} />
@@ -626,6 +634,9 @@ function LibraryTab({
               <th className="px-3 py-2 font-medium">Title</th>
               <th className="px-3 py-2 font-medium">Year</th>
               <th className="px-3 py-2 text-right font-medium">Citations</th>
+              <th className="px-3 py-2 text-right font-medium" title="References fetched for this paper; green = all collectable ones are in your library">
+                Refs
+              </th>
               <th className="px-3 py-2 font-medium">Type</th>
               <th className="px-3 py-2 font-medium">Source</th>
               <th className="px-3 py-2 font-medium">Decision</th>
@@ -635,7 +646,7 @@ function LibraryTab({
             {loading &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b">
-                  <td colSpan={8} className="px-3 py-3">
+                  <td colSpan={9} className="px-3 py-3">
                     <div className="h-4 animate-pulse rounded bg-[var(--bg)]" />
                   </td>
                 </tr>
@@ -690,6 +701,24 @@ function LibraryTab({
                     <td className="px-3 py-2 text-right tabular-nums">
                       {a.citation_count != null ? a.citation_count.toLocaleString() : <span className="text-[var(--muted)]">—</span>}
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {(a.references_count ?? 0) === 0 ? (
+                        <span className="text-[var(--muted)]">—</span>
+                      ) : (
+                        <span
+                          className="font-medium"
+                          style={{
+                            color:
+                              (a.references_with_doi ?? 0) > 0 && (a.references_in_library ?? 0) >= (a.references_with_doi ?? 0)
+                                ? "#16a34a"
+                                : "var(--text)",
+                          }}
+                          title={`${a.references_count} references · ${a.references_in_library ?? 0}/${a.references_with_doi ?? 0} with a DOI already in your library — click to view`}
+                        >
+                          {a.references_count}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.category || "Unclassified"}</td>
                     <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.source}</td>
                     <td className="px-3 py-2">
@@ -700,7 +729,7 @@ function LibraryTab({
               })}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+                <td colSpan={9} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
                   No matching papers.
                 </td>
               </tr>
@@ -736,6 +765,11 @@ function LibraryTab({
           onDelete={deleteCurrent}
           onClose={() => setModalId(null)}
           onChanged={onChanged}
+          onOpenArticle={(id) => {
+            setModalInitial(null);
+            setModalEdit(false);
+            setModalId(id);
+          }}
         />
       )}
     </div>

@@ -39,9 +39,32 @@ export interface Article {
   origin?: string; // "search" | "reference"
   references_extracted: boolean;
   references_count: number;
+  references_with_doi?: number; // references that carry a DOI (collectable)
+  references_in_library?: number; // of those, how many are already collected
   edited_by_user: boolean;
   references?: Reference[];
   references_error?: string;
+}
+
+export interface AnnotatedReference {
+  title: string;
+  doi: string;
+  year: number | null;
+  authors: string;
+  venue: string;
+  status: "in_library" | "collectable" | "no_doi";
+  library_id: number | null;
+  linked: boolean;
+}
+
+export interface ReferencePanel {
+  article_id: number;
+  total: number;
+  in_library: number;
+  collectable: number;
+  no_doi: number;
+  added: number;
+  references: AnnotatedReference[];
 }
 
 export interface Reference {
@@ -70,6 +93,14 @@ export interface GraphNode {
   doi?: string;
   cited_by_count?: number;
   papers?: number;
+  article_id?: number; // citation-mode nodes link back to a Library row
+}
+
+export interface NetworkFilters {
+  year_min?: number;
+  year_max?: number;
+  included_only?: boolean;
+  min_citations?: number;
 }
 
 export interface GraphEdge {

@@ -110,6 +110,9 @@ def _article_dict(a: CollectedArticle) -> dict:
         "origin": a.origin or "search",
         "references_extracted": bool(a.references_extracted),
         "references_count": a.references_count or 0,
+        # Reference-column state; filled in by list_articles for the current page.
+        "references_with_doi": 0,
+        "references_in_library": 0,
         "edited_by_user": bool((a.notes or "").startswith("[edited]") or (a.imported_from == "manual-edit")),
     }
 
@@ -231,7 +234,37 @@ def list_articles(
             ordered = query.order_by(CollectedArticle.year.desc().nullslast(), CollectedArticle.id.desc())
         total = ordered.count()
         rows = ordered.offset(offset).limit(limit).all()
-        return {"total": total, "items": [_article_dict(a) for a in rows]}
+        items = [_article_dict(a) for a in rows]
+
+        # Reference-column counts for rows that have a fetched reference list:
+        # how many references carry a DOI, and how many of those are already in
+        # the library (drives the green "all collected" state). Computed for the
+        # page only, against this project's live DOI set.
+        ref_rows = [(a.id, a.references_json) for a in rows if (a.references_count or 0) > 0]
+        if ref_rows:
+            from utils.refs_collect import _doi
+
+            proj_dois = {
+                _doi(d)
+                for (d,) in session.query(CollectedArticle.doi)
+                .filter_by(project_id=project_id)
+                .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
+                .all()
+                if d
+            }
+            counts: dict[int, tuple[int, int]] = {}
+            for aid, rj in ref_rows:
+                try:
+                    refs = json.loads(rj or "[]")
+                except Exception:
+                    refs = []
+                dois = [_doi(r.get("doi")) for r in refs if isinstance(r, dict) and _doi(r.get("doi"))]
+                counts[aid] = (len(dois), sum(1 for d in dois if d in proj_dois))
+            for it in items:
+                wd, il = counts.get(it["id"], (0, 0))
+                it["references_with_doi"] = wd
+                it["references_in_library"] = il
+        return {"total": total, "items": items}
     finally:
         session.close()
 
@@ -293,6 +326,46 @@ def extract_references(article_id: int):
         return {"ok": True, "count": len(refs), "references": refs}
     finally:
         session.close()
+
+
+class RefCollect(BaseModel):
+    doi: str
+
+
+@app.get("/api/articles/{article_id}/references")
+def article_references(article_id: int):
+    """The paper's fetched reference list, each entry tagged in_library /
+    collectable / no_doi, for the references companion panel."""
+    from utils.refs_collect import annotate
+
+    result = annotate(article_id)
+    if result.get("error"):
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@app.post("/api/articles/{article_id}/references/collect")
+def article_collect_reference(article_id: int, body: RefCollect):
+    """Resolve one reference's full metadata, add it to the library if new, and
+    link the paper to it."""
+    from utils.refs_collect import collect_one
+
+    res = collect_one(article_id, body.doi)
+    if res.get("error") and not res.get("linked"):
+        raise HTTPException(400, res["error"])
+    return res
+
+
+@app.post("/api/articles/{article_id}/references/collect-all")
+def article_collect_all_references(article_id: int):
+    """Resolve and add every collectable reference (has a DOI, not yet in the
+    library), linking each back to this paper."""
+    from utils.refs_collect import collect_all
+
+    res = collect_all(article_id)
+    if res.get("error"):
+        raise HTTPException(400, res["error"])
+    return res
 
 
 @app.patch("/api/articles/{article_id}")
@@ -726,14 +799,21 @@ def search_active(project_id: int, type: str = "both"):
 # Network
 
 @app.get("/api/projects/{project_id}/network")
-def project_network(project_id: int, mode: str = Query("citation", pattern="^(citation|author|journal)$")):
+def project_network(
+    project_id: int,
+    mode: str = Query("citation", pattern="^(citation|author|journal)$"),
+    year_min: int = 0,
+    year_max: int = 0,
+    included_only: bool = False,
+    min_citations: int = 0,
+):
     session = new_session()
     try:
         if not session.get(Project, project_id):
             raise HTTPException(404, "project not found")
     finally:
         session.close()
-    return build_network(project_id, mode)
+    return build_network(project_id, mode, year_min, year_max, included_only, min_citations)
 
 
 @app.get("/api/health")

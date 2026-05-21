@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine, event, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, text as _sa_text
+from sqlalchemy import create_engine, event, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, UniqueConstraint, Index, text as _sa_text
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime, timezone
 
@@ -196,6 +196,31 @@ class CitedArticle(Base):
 
     project = relationship("Project", back_populates="cited_articles")
     curated_review = relationship("CuratedReview", back_populates="cited_articles")
+
+
+class CitationLink(Base):
+    """Provenance edge: paper `citing_id` was collected as a reference of, and
+    cites, paper `cited_id` (both rows in `collected_articles`, same project).
+
+    Created when a reference is pulled into the library from a paper's reference
+    list. Many-to-many: a popular paper cited by several of your papers gets one
+    link row per citing paper, but stays a single library article. Powers the
+    Library "References" column (added count + green state) and the citation
+    graph; never duplicates (unique on citing+cited)."""
+
+    __tablename__ = "citation_links"
+
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    citing_id = Column(Integer, ForeignKey("collected_articles.id"), nullable=False)
+    cited_id = Column(Integer, ForeignKey("collected_articles.id"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("citing_id", "cited_id", name="ux_citation_link"),
+        Index("ix_citation_link_citing", "citing_id"),
+        Index("ix_citation_link_project", "project_id"),
+    )
 
 
 # check_same_thread=False is required because background search/extraction
