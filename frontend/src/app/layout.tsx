@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Display / UI accents — premium geometric sans.
+const display = Plus_Jakarta_Sans({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+});
+// Body / dense UI — highly legible at small sizes (tables, forms).
+const sans = Inter({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Data — tabular figures for counts, DOIs, years.
+const mono = JetBrains_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -25,24 +33,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${display.variable} ${sans.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <header className="sticky top-0 z-20 border-b bg-[var(--surface)]/90 backdrop-blur">
-          <div className="flex h-14 w-full items-center gap-3 px-6">
-            <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-              <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--primary)] text-xs font-bold text-white">
-                LM
-              </span>
-              LitMine
-            </a>
-            <span className="text-xs text-[var(--muted)]">
-              local-first literature workspace
-            </span>
-          </div>
-        </header>
-        <main className="w-full flex-1 px-6 pb-6 pt-4">{children}</main>
-      </body>
+      <body className="min-h-full bg-[var(--bg)] text-[var(--text)]">{children}</body>
     </html>
   );
 }

@@ -19,6 +19,23 @@ import ArticleModal from "@/components/ArticleModal";
 import Analysis from "@/components/Analysis";
 import CommandPalette, { type Command } from "@/components/CommandPalette";
 import { ShortcutsBar, HelpOverlay } from "@/components/Shortcuts";
+import { Library as LibraryIcon, Search as SearchIcon, LineChart, Share2, Trash2, Command as CommandIcon, Keyboard, ArrowLeft } from "lucide-react";
+
+const NAV = [
+  { key: "library", label: "Library", Icon: LibraryIcon },
+  { key: "search", label: "Search", Icon: SearchIcon },
+  { key: "analysis", label: "Analysis", Icon: LineChart },
+  { key: "network", label: "Network map", Icon: Share2 },
+  { key: "trash", label: "Trash", Icon: Trash2 },
+] as const;
+
+const TAB_TITLE: Record<string, string> = {
+  library: "Library",
+  search: "Search & collect",
+  analysis: "Analysis",
+  network: "Network map",
+  trash: "Trash",
+};
 
 const DECISIONS = ["all", "unscreened", "include", "maybe", "exclude"];
 const PAGE = 50;
@@ -132,102 +149,134 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   }, []);
 
   return (
-    <div>
-      <div className="mb-2 flex items-center gap-2 text-sm text-[var(--muted)]">
-        <Link href="/" className="hover:text-[var(--text)]">
-          Projects
+    <div className="flex min-h-screen">
+      {/* ── Dark navigation rail ─────────────────────────────────────── */}
+      <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col gap-4 overflow-y-auto bg-[var(--rail)] px-3 py-4 text-[var(--rail-text)] md:flex">
+        {/* Brand */}
+        <Link href="/" className="flex items-center gap-2.5 px-2 py-1">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#1e40af] text-xs font-bold text-white shadow-[0_2px_8px_-2px_rgba(59,130,246,0.6)]">
+            LM
+          </span>
+          <span className="font-display text-[15px] font-bold tracking-tight text-white">LitMine</span>
         </Link>
-        <span>/</span>
-        <span className="text-[var(--text)]">{project?.name ?? "…"}</span>
-      </div>
 
-      <div className="mb-2 min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight">{project?.name ?? "Loading…"}</h1>
-        {project?.topic && (
-          <p className="mt-0.5 line-clamp-1 text-xs text-[var(--muted)]">
-            Topic: <code>{project.topic}</code> · {project.literature_type}
-          </p>
-        )}
-      </div>
+        {/* Project context */}
+        <div className="rounded-xl bg-[var(--rail-2)] px-3 py-2.5">
+          <Link href="/" className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-[var(--rail-muted)] hover:text-white">
+            <ArrowLeft size={12} /> All projects
+          </Link>
+          <div className="line-clamp-2 font-display text-sm font-semibold text-white">{project?.name ?? "Loading…"}</div>
+          {project?.topic && <div className="mt-0.5 line-clamp-1 text-[11px] text-[var(--rail-muted)]">{project.literature_type}</div>}
+        </div>
 
-      {/* Tabs and the screening stat pills share one row to save vertical space. */}
-      <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-1 border-b">
-        {([
-          ["search", "Search"],
-          ["library", "Library"],
-          ["analysis", "Analysis"],
-          ["network", "Network map"],
-          ["trash", "Trash"],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-              tab === key
-                ? "border-[var(--primary)] text-[var(--primary)]"
-                : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-        {tab === "library" && stats && (
-          <div className="ml-auto flex flex-wrap items-center gap-1.5 pb-1.5">
-            <StatPill label="Total" value={stats.total} active={decision === "all"} onClick={() => setDecision("all")} />
-            <StatPill label="Unscreened" value={stats.unscreened} tone="muted" active={decision === "unscreened"} onClick={() => setDecision("unscreened")} />
-            <StatPill label="Include" value={stats.include} tone="good" active={decision === "include"} onClick={() => setDecision("include")} />
-            <StatPill label="Maybe" value={stats.maybe} tone="warn" active={decision === "maybe"} onClick={() => setDecision("maybe")} />
-            <StatPill label="Exclude" value={stats.exclude} tone="danger" active={decision === "exclude"} onClick={() => setDecision("exclude")} />
+        {/* Primary nav */}
+        <nav className="flex flex-col gap-0.5">
+          {NAV.map(({ key, label, Icon }) => (
+            <button key={key} className="rail-item" data-active={tab === key} onClick={() => setTab(key as Tab)}>
+              <Icon size={16} strokeWidth={2} />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Screening stats */}
+        {stats && (
+          <div className="mt-1">
+            <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--rail-muted)]">Screening</div>
+            <div className="flex flex-col gap-0.5">
+              <RailStat label="Total" value={stats.total} dot="#3b82f6" active={tab === "library" && decision === "all"} onClick={() => { setTab("library"); setDecision("all"); }} />
+              <RailStat label="Unscreened" value={stats.unscreened} dot="#64748b" active={tab === "library" && decision === "unscreened"} onClick={() => { setTab("library"); setDecision("unscreened"); }} />
+              <RailStat label="Include" value={stats.include} dot="#22c55e" active={tab === "library" && decision === "include"} onClick={() => { setTab("library"); setDecision("include"); }} />
+              <RailStat label="Maybe" value={stats.maybe} dot="#f59e0b" active={tab === "library" && decision === "maybe"} onClick={() => { setTab("library"); setDecision("maybe"); }} />
+              <RailStat label="Exclude" value={stats.exclude} dot="#ef4444" active={tab === "library" && decision === "exclude"} onClick={() => { setTab("library"); setDecision("exclude"); }} />
+            </div>
           </div>
         )}
+
+        <div className="mt-auto flex items-center gap-1 px-2 pt-2 text-[10px] text-[var(--rail-muted)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e]" /> Local-first · synced
+        </div>
+      </aside>
+
+      {/* ── Light data canvas ────────────────────────────────────────── */}
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        {/* Top bar */}
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/85 px-5 backdrop-blur">
+          <h1 className="font-display text-base font-semibold tracking-tight">{TAB_TITLE[tab]}</h1>
+          {project?.topic && tab === "library" && (
+            <span className="hidden truncate text-xs text-[var(--muted)] lg:inline">· {project.topic}</span>
+          )}
+          <div className="ml-auto flex items-center gap-1.5">
+            <button onClick={() => setPaletteOpen(true)} className="btn btn-ghost gap-1.5 text-xs" title="Command palette (⌘K)">
+              <CommandIcon size={14} /> <span className="hidden sm:inline">Commands</span>
+              <kbd className="ml-1 hidden rounded border border-[var(--border)] bg-[var(--surface-2)] px-1 py-0.5 text-[10px] font-medium sm:inline">⌘K</kbd>
+            </button>
+            <button onClick={() => setHelpOpen(true)} className="btn btn-ghost px-2 text-xs" title="Keyboard shortcuts (?)">
+              <Keyboard size={14} />
+            </button>
+            <div className="mx-1 h-5 w-px bg-[var(--border)]" />
+            <div className="flex overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-strong)]">
+              {(["csv", "json", "xlsx"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => window.open(exportUrl(projectId, f))}
+                  className="border-r border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium uppercase text-[var(--muted)] transition last:border-r-0 hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                  title={`Export ${f.toUpperCase()}`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className="min-w-0 flex-1 p-5">
+          <ShortcutsBar context={tab} onHelp={() => setHelpOpen(true)} />
+
+          {tab === "search" && (
+            <SearchPanel projectId={projectId} defaultType={typeFromLabel(project?.literature_type)} onViewLibrary={() => setTab("library")} />
+          )}
+          {tab === "library" && (
+            <LibraryTab
+              projectId={projectId}
+              decision={decision}
+              setDecision={setDecision}
+              dataVersion={dataVersion}
+              onChanged={bumpData}
+              stats={stats}
+              focusId={focusTarget?.id ?? null}
+              focusEdit={focusTarget?.edit ?? false}
+              onFocusConsumed={() => setFocusTarget(null)}
+            />
+          )}
+          {tab === "analysis" && (
+            <Analysis projectId={projectId} onChanged={bumpData} onOpenPaper={(id) => { setTab("library"); focusInLibrary(id, false); }} />
+          )}
+          {tab === "network" && (
+            <NetworkMap projectId={projectId} onOpenPaper={(id) => { setTab("library"); focusInLibrary(id, false); }} />
+          )}
+          {tab === "trash" && <Trash projectId={projectId} />}
+        </main>
       </div>
-
-      <ShortcutsBar context={tab} onHelp={() => setHelpOpen(true)} />
-
-      {tab === "search" && (
-        <SearchPanel
-          projectId={projectId}
-          defaultType={typeFromLabel(project?.literature_type)}
-          onViewLibrary={() => setTab("library")}
-        />
-      )}
-      {tab === "library" && (
-        <LibraryTab
-          projectId={projectId}
-          decision={decision}
-          setDecision={setDecision}
-          dataVersion={dataVersion}
-          onChanged={bumpData}
-          stats={stats}
-          focusId={focusTarget?.id ?? null}
-          focusEdit={focusTarget?.edit ?? false}
-          onFocusConsumed={() => setFocusTarget(null)}
-        />
-      )}
-      {tab === "analysis" && (
-        <Analysis
-          projectId={projectId}
-          onChanged={bumpData}
-          onOpenPaper={(id) => {
-            setTab("library");
-            focusInLibrary(id, false);
-          }}
-        />
-      )}
-      {tab === "network" && (
-        <NetworkMap
-          projectId={projectId}
-          onOpenPaper={(id) => {
-            setTab("library");
-            focusInLibrary(id, false);
-          }}
-        />
-      )}
-      {tab === "trash" && <Trash projectId={projectId} />}
 
       <CommandPalette open={paletteOpen} commands={commands} onSearch={searchPapers} onClose={() => setPaletteOpen(false)} />
       <HelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
+  );
+}
+
+function RailStat({ label, value, dot, active, onClick }: { label: string; value: number; dot: string; active?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      data-active={active}
+      className="group flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-1.5 text-[13px] transition hover:bg-[var(--rail-2)] data-[active=true]:bg-[var(--rail-active-bg)]"
+    >
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />
+      <span className="text-[var(--rail-text)] group-hover:text-white group-data-[active=true]:font-semibold group-data-[active=true]:text-white">{label}</span>
+      <span className="tnum ml-auto font-mono text-[12px] text-[var(--rail-muted)] group-data-[active=true]:text-white">{value.toLocaleString()}</span>
+    </button>
   );
 }
 
@@ -595,20 +644,9 @@ function LibraryTab({
           tone="#0ea5e9"
           onClick={() => { setPage(0); setShowReference((v) => !v); }}
         />
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-[var(--muted)]">{total.toLocaleString()} papers</span>
-          <div className="flex items-center gap-1 text-xs">
-            <span className="text-[var(--muted)]">Export:</span>
-            {(["csv", "json", "xlsx"] as const).map((f) => (
-              <a
-                key={f}
-                href={exportUrl(projectId, f)}
-                className="rounded-md border border-[var(--border)] px-2 py-1 font-medium text-[var(--muted)] hover:text-[var(--text)]"
-              >
-                {f === "xlsx" ? "Excel" : f.toUpperCase()}
-              </a>
-            ))}
-          </div>
+        <div className="ml-auto flex items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-3 py-1 text-xs">
+          <span className="tnum font-mono font-semibold text-[var(--text)]">{total.toLocaleString()}</span>
+          <span className="text-[var(--muted)]">papers</span>
         </div>
       </div>
 
@@ -628,18 +666,18 @@ function LibraryTab({
         <div className="min-h-0 flex-1 overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b bg-[var(--surface-2)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
-              <th className="w-8 px-2 py-2 font-medium"></th>
-              <th className="px-3 py-2 font-medium">#</th>
-              <th className="px-3 py-2 font-medium">Title</th>
-              <th className="px-3 py-2 font-medium">Year</th>
-              <th className="px-3 py-2 text-right font-medium">Citations</th>
-              <th className="px-3 py-2 text-right font-medium" title="References fetched for this paper; green = all collectable ones are in your library">
+            <tr className="border-b border-[var(--border-strong)] bg-[var(--surface-2)] text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)] shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+              <th className="w-8 px-2 py-2.5"></th>
+              <th className="px-3 py-2.5">#</th>
+              <th className="px-3 py-2.5">Title</th>
+              <th className="px-3 py-2.5">Year</th>
+              <th className="px-3 py-2.5 text-right">Citations</th>
+              <th className="px-3 py-2.5 text-right" title="References fetched for this paper; green = all collectable ones are in your library">
                 Refs
               </th>
-              <th className="px-3 py-2 font-medium">Type</th>
-              <th className="px-3 py-2 font-medium">Source</th>
-              <th className="px-3 py-2 font-medium">Decision</th>
+              <th className="px-3 py-2.5">Type</th>
+              <th className="px-3 py-2.5">Source</th>
+              <th className="px-3 py-2.5">Decision</th>
             </tr>
           </thead>
           <tbody ref={rowsRef}>
@@ -697,11 +735,11 @@ function LibraryTab({
                       </span>
                       <span className="text-xs text-[var(--muted)]">{a.authors}</span>
                     </td>
-                    <td className="px-3 py-2 tabular-nums">{a.year ?? ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {a.citation_count != null ? a.citation_count.toLocaleString() : <span className="text-[var(--muted)]">—</span>}
+                    <td className="tnum px-3 py-2 font-mono text-[12px] text-[var(--text-2)]">{a.year ?? ""}</td>
+                    <td className="tnum px-3 py-2 text-right font-mono text-[12px] text-[var(--text-2)]">
+                      {a.citation_count != null ? a.citation_count.toLocaleString() : <span className="text-[var(--faint)]">—</span>}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
+                    <td className="tnum px-3 py-2 text-right font-mono text-[12px]">
                       {(a.references_count ?? 0) === 0 ? (
                         <span className="text-[var(--muted)]">—</span>
                       ) : (
@@ -710,7 +748,7 @@ function LibraryTab({
                           style={{
                             color:
                               (a.references_with_doi ?? 0) > 0 && (a.references_in_library ?? 0) >= (a.references_with_doi ?? 0)
-                                ? "#16a34a"
+                                ? "var(--success)"
                                 : "var(--text)",
                           }}
                           title={`${a.references_count} references · ${a.references_in_library ?? 0}/${a.references_with_doi ?? 0} with a DOI already in your library — click to view`}
@@ -800,36 +838,6 @@ function OriginChip({
       <span className="h-2 w-2 rounded-full" style={{ background: active ? tone : "var(--muted)" }} />
       {label}
       {count != null && <span className="tabular-nums text-[var(--muted)]">{count.toLocaleString()}</span>}
-    </button>
-  );
-}
-
-function StatPill({
-  label,
-  value,
-  tone,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  tone?: "good" | "warn" | "danger" | "muted";
-  active?: boolean;
-  onClick?: () => void;
-}) {
-  const color =
-    tone === "good" ? "#16a34a" : tone === "warn" ? "#d97706" : tone === "danger" ? "#dc2626" : "var(--text)";
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-baseline gap-1 rounded-md border px-2 py-1 transition ${
-        active ? "border-[var(--primary)] bg-[var(--primary-weak)]" : "border-[var(--border)] hover:bg-[var(--surface-2)]"
-      }`}
-    >
-      <span className="text-sm font-semibold tabular-nums" style={{ color }}>
-        {value.toLocaleString()}
-      </span>
-      <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</span>
     </button>
   );
 }
