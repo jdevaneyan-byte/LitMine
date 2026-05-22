@@ -362,5 +362,30 @@ class ReferencesTests(unittest.TestCase):
         self.assertEqual(refs[0]["year"], 2020)
 
 
+class IssnCaptureTests(unittest.TestCase):
+    def test_openalex_parse_includes_issn(self):
+        from api.openalex import _parse_work
+        work = {
+            "title": "T", "id": "https://openalex.org/W1",
+            "primary_location": {"source": {"display_name": "JACS", "issn_l": "0002-7863"}},
+        }
+        self.assertEqual(_parse_work(work)["issn"], "0002-7863")
+
+    def test_s2_parse_includes_issn(self):
+        from api.semantic_scholar import _parse_paper
+        paper = {"title": "T", "publicationVenue": {"issn": "1234-5678"}}
+        self.assertEqual(_parse_paper(paper)["issn"], "1234-5678")
+
+    def test_arxiv_parse_has_empty_issn(self):
+        import xml.etree.ElementTree as ET
+        from api.arxiv import _parse_entry
+        xml = ('<entry xmlns="http://www.w3.org/2005/Atom">'
+               '<title>T</title><summary>s</summary>'
+               '<published>2024-01-01T00:00:00Z</published>'
+               '<id>http://arxiv.org/abs/2401.00001v1</id></entry>')
+        entry = ET.fromstring(xml)
+        self.assertEqual(_parse_entry(entry)["issn"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

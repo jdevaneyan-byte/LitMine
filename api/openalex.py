@@ -50,6 +50,7 @@ def _parse_work(work: dict) -> dict:
     url = loc.get("landing_page_url") or work.get("id", "")
     source_obj = loc.get("source") or {}
     venue = source_obj.get("display_name") or ""
+    issn = source_obj.get("issn_l") or "" if isinstance(source_obj, dict) else ""
 
     oa_id = (work.get("id") or "").rsplit("/", 1)[-1] if work.get("id") else ""
     referenced = work.get("referenced_works") or []
@@ -64,6 +65,7 @@ def _parse_work(work: dict) -> dict:
         "pub_type": work.get("type") or "",
         "citation_count": work.get("cited_by_count"),
         "venue": venue,
+        "issn": issn,
         "openalex_id": oa_id,
         "referenced_ids": [r.rsplit("/", 1)[-1] for r in referenced],
     }

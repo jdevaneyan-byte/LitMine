@@ -147,6 +147,7 @@ def _parse_entry(entry: ET.Element) -> dict:
         "source": "arXiv",
         "url": arxiv_url,
         "pub_type": "Preprint",
+        "issn": "",
     }
 
 

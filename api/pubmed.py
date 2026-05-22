@@ -128,6 +128,7 @@ def _parse_xml(xml_text: str) -> list[dict]:
                     pass
 
             venue = art.findtext(".//Journal/Title", "") or art.findtext(".//Journal/ISOAbbreviation", "")
+            issn = art.findtext(".//Journal/ISSN", "") or ""
 
             all_authors = art.findall(".//Author")
             authors = []
@@ -175,6 +176,7 @@ def _parse_xml(xml_text: str) -> list[dict]:
                         "url": url,
                         "pub_type": pub_type,
                         "venue": venue,
+                        "issn": issn,
                     }
                 )
         except Exception:
