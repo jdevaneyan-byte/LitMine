@@ -386,6 +386,20 @@ class IssnCaptureTests(unittest.TestCase):
         entry = ET.fromstring(xml)
         self.assertEqual(_parse_entry(entry)["issn"], "")
 
+    def test_pubmed_parse_includes_issn(self):
+        from api.pubmed import _parse_xml
+        xml = (
+            "<PubmedArticleSet><PubmedArticle><MedlineCitation><Article>"
+            "<ArticleTitle>T</ArticleTitle>"
+            "<Journal><ISSN>1234-5678</ISSN><Title>Some Journal</Title></Journal>"
+            "</Article></MedlineCitation>"
+            '<PubmedData><ArticleIdList><ArticleId IdType="pubmed">99</ArticleId>'
+            "</ArticleIdList></PubmedData></PubmedArticle></PubmedArticleSet>"
+        )
+        rows = _parse_xml(xml)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["issn"], "1234-5678")
+
 
 if __name__ == "__main__":
     unittest.main()
