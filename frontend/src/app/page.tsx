@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createProject, deleteProject, duplicateProject, listProjects, renameProject } from "@/lib/api";
@@ -13,6 +13,7 @@ export default function HomePage() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [renamingId, setRenamingId] = useState<number | null>(null);
+  const renameEscaped = useRef(false);
   const removeProject = (id: number) =>
     setProjects((cur) => (cur ? cur.filter((p) => p.id !== id) : cur));
   const reload = () => listProjects().then(setProjects).catch((e) => setError(String(e)));
@@ -104,8 +105,12 @@ export default function HomePage() {
                     onClick={async (e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      await duplicateProject(p.id);
-                      reload();
+                      try {
+                        await duplicateProject(p.id);
+                        reload();
+                      } catch (err) {
+                        setError(String(err));
+                      }
                     }}
                     className="rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
                     aria-label={`Duplicate ${p.name}`}
@@ -132,14 +137,27 @@ export default function HomePage() {
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                     onKeyDown={(e) => {
                       e.stopPropagation();
-                      if (e.key === "Escape") setRenamingId(null);
+                      if (e.key === "Escape") {
+                        renameEscaped.current = true;
+                        setRenamingId(null);
+                      } else if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
                     }}
                     onBlur={async (e) => {
                       const name = e.target.value.trim();
                       setRenamingId(null);
+                      if (renameEscaped.current) {
+                        renameEscaped.current = false;
+                        return;
+                      }
                       if (name && name !== p.name) {
-                        await renameProject(p.id, { name });
-                        reload();
+                        try {
+                          await renameProject(p.id, { name });
+                          reload();
+                        } catch (err) {
+                          setError(String(err));
+                        }
                       }
                     }}
                   />

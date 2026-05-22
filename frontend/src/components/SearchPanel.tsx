@@ -57,14 +57,20 @@ export default function SearchPanel({
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
-  const [aiUnavailable, setAiUnavailable] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
 
   const fetchSuggestions = async () => {
     setSuggesting(true);
+    setSuggestNote(null);
     try {
       const r = await suggestKeywords(topic, terms);
-      setSuggestions(r.terms.filter((t) => !terms.some((x) => x.toLowerCase() === t.toLowerCase())));
-      setAiUnavailable(r.unavailable);
+      const fresh = r.terms.filter((t) => !terms.some((x) => x.toLowerCase() === t.toLowerCase()));
+      setSuggestions(fresh);
+      if (fresh.length === 0) {
+        setSuggestNote(r.unavailable ? "AI suggestions unavailable (no API key)." : "No new suggestions.");
+      }
+    } catch {
+      setSuggestNote("Couldn't reach the suggestion service.");
     } finally {
       setSuggesting(false);
     }
@@ -184,8 +190,8 @@ export default function SearchPanel({
           </div>
         )}
 
-        {!aiUnavailable && (
-          <div className="mt-2">
+        <div className="mt-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               className="flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:underline disabled:opacity-50"
@@ -194,22 +200,23 @@ export default function SearchPanel({
             >
               <Sparkles size={12} /> {suggesting ? "Thinking…" : "Suggest terms"}
             </button>
-            {suggestions.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {suggestions.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => addSuggestion(t)}
-                    className="rounded-full border border-dashed border-[var(--primary)] px-2 py-0.5 text-xs text-[var(--primary)] hover:bg-[var(--primary-weak)]"
-                  >
-                    + {t}
-                  </button>
-                ))}
-              </div>
-            )}
+            {suggestNote && <span className="text-xs text-[var(--muted)]">{suggestNote}</span>}
           </div>
-        )}
+          {suggestions.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {suggestions.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => addSuggestion(t)}
+                  className="rounded-full border border-dashed border-[var(--primary)] px-2 py-0.5 text-xs text-[var(--primary)] hover:bg-[var(--primary-weak)]"
+                >
+                  + {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
