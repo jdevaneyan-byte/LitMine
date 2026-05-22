@@ -153,6 +153,7 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
         run_both_search_with_status,
     )
     from utils.pub_category import categorize
+    from utils.field_classifier import classify as classify_field
     from database import init_db, new_session, CollectedArticle, Project
 
     init_db()
@@ -223,6 +224,7 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                     if title_l in existing_titles:
                         continue
 
+                    field_label, field_src = classify_field(art.get("issn", ""), art.get("venue", ""))
                     record = CollectedArticle(
                         project_id=project_id,
                         title=art["title"],
@@ -235,6 +237,9 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
                         pub_type=art.get("pub_type", ""),
                         category=categorize(art.get("pub_type"), art.get("source"), art.get("title")),
                         venue=art.get("venue", ""),
+                        issn=art.get("issn", "") or "",
+                        field=field_label,
+                        field_source=field_src,
                         citation_count=art.get("citation_count"),
                         screening_status="unscreened",
                         origin="search",
