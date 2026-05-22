@@ -28,6 +28,8 @@ export interface Article {
   source: string;
   pub_type: string | null;
   category: string;
+  field?: string;
+  field_source?: string;
   venue: string;
   citation_count: number | null;
   screening_status: string;

@@ -70,6 +70,10 @@ export async function duplicateProject(id: number): Promise<{ id: number; name: 
   return res.json();
 }
 
+export async function backfillFields(projectId: number): Promise<{ ok: boolean; updated: number; total: number }> {
+  return postJson(`/api/projects/${projectId}/backfill-fields`, {});
+}
+
 export async function suggestKeywords(
   topic: string,
   seeds: string[],
@@ -84,6 +88,7 @@ export interface ArticleFilters {
   year_max?: number;
   pub_type?: string;
   category?: string;
+  field?: string;
   journal?: string;
   origin?: "all" | "search" | "reference";
   view?: "active" | "trash";
@@ -100,6 +105,7 @@ export async function listArticles(projectId: number, f: ArticleFilters = {}): P
   if (f.year_max) params.set("year_max", String(f.year_max));
   if (f.pub_type && f.pub_type !== "all") params.set("pub_type", f.pub_type);
   if (f.category && f.category !== "all") params.set("category", f.category);
+  if (f.field && f.field !== "all") params.set("field", f.field);
   if (f.journal) params.set("journal", f.journal);
   if (f.origin && f.origin !== "all") params.set("origin", f.origin);
   if (f.view) params.set("view", f.view);
@@ -300,6 +306,7 @@ export interface ScreeningStats {
   from_search: number;
   from_reference: number;
   refs_extracted: number;
+  by_field?: Record<string, number>;
 }
 
 // Reference harvest + analysis (snowballing / gap detection)
