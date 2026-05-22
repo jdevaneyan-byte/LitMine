@@ -51,6 +51,10 @@ export default function SearchPanel({
   const [cancelling, setCancelling] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Elapsed-time clock: starts when a job is running, freezes when it finishes.
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startRef = useRef<number | null>(null);
+
   const terms = parseTerms(queries);
   const removeTerm = (idx: number) =>
     setQueries(terms.filter((_, i) => i !== idx).join("\n"));
@@ -116,6 +120,18 @@ export default function SearchPanel({
     return stopPolling;
   }, [jobId, stopPolling]);
 
+  // Tick the elapsed clock while a job runs; the final value stays frozen once
+  // jobId clears (search done/cancelled).
+  useEffect(() => {
+    if (!jobId) return;
+    if (startRef.current == null) startRef.current = Date.now();
+    setElapsedMs(Date.now() - startRef.current);
+    const id = setInterval(() => {
+      setElapsedMs(Date.now() - (startRef.current ?? Date.now()));
+    }, 250);
+    return () => clearInterval(id);
+  }, [jobId]);
+
   const toggleSource = (s: string) =>
     setSources((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
 
@@ -131,6 +147,8 @@ export default function SearchPanel({
     }
     setErr(null);
     setStatus(null);
+    startRef.current = null; // fresh clock for this run
+    setElapsedMs(0);
     try {
       const r = await startSearch(projectId, {
         queries: qs,
@@ -380,7 +398,12 @@ export default function SearchPanel({
         {status && (
           <div className="mt-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <PhaseChip phase={phase} />
+              <div className="flex items-center gap-2">
+                <PhaseChip phase={phase} />
+                <span className="tnum font-mono text-sm text-[var(--text)]" title="Elapsed time">
+                  {fmtElapsed(elapsedMs)}
+                </span>
+              </div>
               <span className="text-sm text-[var(--muted)]">
                 <span className="tnum font-mono text-[var(--text)]">{status.completed}</span>
                 <span className="text-[var(--muted)]">/{status.total}</span> searches
@@ -428,6 +451,13 @@ export default function SearchPanel({
       </div>
     </div>
   );
+}
+
+function fmtElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function PhaseChip({ phase }: { phase: "running" | "done" | "cancelled" | "error" }) {
