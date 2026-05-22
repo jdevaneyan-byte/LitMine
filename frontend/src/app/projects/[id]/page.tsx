@@ -250,7 +250,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <ShortcutsBar context={tab} onHelp={() => setHelpOpen(true)} />
 
           {tab === "search" && (
-            <SearchPanel projectId={projectId} defaultType={typeFromLabel(project?.literature_type)} onViewLibrary={() => setTab("library")} />
+            <SearchPanel projectId={projectId} defaultType={typeFromLabel(project?.literature_type)} topic={project?.topic ?? ""} onViewLibrary={() => setTab("library")} />
           )}
           {tab === "library" && (
             <LibraryTab

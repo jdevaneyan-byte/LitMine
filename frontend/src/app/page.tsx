@@ -3,14 +3,19 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createProject, listProjects } from "@/lib/api";
+import { createProject, deleteProject, duplicateProject, listProjects, renameProject } from "@/lib/api";
 import type { ProjectSummary } from "@/lib/types";
-import { Plus, ArrowRight, FolderOpen } from "lucide-react";
+import { Plus, ArrowRight, FolderOpen, Trash2, Pencil, Copy } from "lucide-react";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const removeProject = (id: number) =>
+    setProjects((cur) => (cur ? cur.filter((p) => p.id !== id) : cur));
+  const reload = () => listProjects().then(setProjects).catch((e) => setError(String(e)));
 
   useEffect(() => {
     listProjects()
@@ -81,8 +86,60 @@ export default function HomePage() {
                 className="card group relative block overflow-hidden p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
               >
                 <span className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#3b82f6] to-[#1e40af] opacity-0 transition group-hover:opacity-100" />
+                <div className="absolute right-2 top-2 z-10 flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingId(p.id); }}
+                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                    aria-label={`Rename ${p.name}`}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await duplicateProject(p.id);
+                      reload();
+                    }}
+                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                    aria-label={`Duplicate ${p.name}`}
+                  >
+                    <Copy size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleting(p); }}
+                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
+                    aria-label={`Delete ${p.name}`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="font-display text-base font-semibold leading-snug">{p.name}</h2>
+                  {renamingId === p.id ? (
+                    <input
+                      className="input w-full text-base font-semibold"
+                      defaultValue={p.name}
+                      autoFocus
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                      onBlur={async (e) => {
+                        const name = e.target.value.trim();
+                        setRenamingId(null);
+                        if (name && name !== p.name) {
+                          await renameProject(p.id, { name });
+                          reload();
+                        }
+                      }}
+                    />
+                  ) : (
+                    <h2 className="font-display text-base font-semibold leading-snug">{p.name}</h2>
+                  )}
                   <span className="badge shrink-0">{p.literature_type}</span>
                 </div>
                 <p className="mt-1 line-clamp-1 text-xs text-[var(--muted)]">{p.topic || "No topic set"}</p>
@@ -102,6 +159,85 @@ export default function HomePage() {
       </div>
 
       {creating && <NewProjectModal onClose={() => setCreating(false)} />}
+      {deleting && (
+        <DeleteProjectModal
+          project={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            removeProject(deleting.id);
+            setDeleting(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteProjectModal({
+  project,
+  onClose,
+  onDeleted,
+}: {
+  project: ProjectSummary;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const armed = confirm.trim().toLowerCase() === "delete";
+
+  const run = async () => {
+    if (!armed) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await deleteProject(project.id);
+      onDeleted();
+    } catch (e) {
+      setErr(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div className="card card-elevated w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+        <h2 className="font-display text-lg font-semibold text-[var(--danger)]">Delete project</h2>
+        <p className="mt-2 text-sm text-[var(--text)]">
+          This permanently deletes <b>{project.name}</b>, including{" "}
+          <b>{project.library.toLocaleString()}</b> library papers,{" "}
+          <b>{project.curated_reviews.toLocaleString()}</b> reviews, and{" "}
+          <b>{project.cited.toLocaleString()}</b> cited records. This cannot be undone.
+        </p>
+        <label className="mt-4 block text-xs font-medium text-[var(--muted)]">
+          Type <code className="font-mono text-[var(--text)]">delete</code> to confirm
+        </label>
+        <input
+          className="input mt-1 w-full"
+          value={confirm}
+          autoFocus
+          onChange={(e) => setConfirm(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && run()}
+        />
+        {err && <div className="mt-2 text-xs text-[var(--danger)]">{err}</div>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn"
+            style={{ background: "var(--danger)", color: "white", opacity: armed && !busy ? 1 : 0.5 }}
+            disabled={!armed || busy}
+            onClick={run}
+          >
+            {busy ? "Deleting…" : "Delete this project"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

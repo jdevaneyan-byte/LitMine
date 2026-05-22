@@ -6,9 +6,10 @@ import {
   findActiveSearch,
   getSearchStatus,
   startSearch,
+  suggestKeywords,
   type SearchStatus,
 } from "@/lib/api";
-import { Search as SearchIcon, ChevronRight, ChevronDown, X } from "lucide-react";
+import { Search as SearchIcon, ChevronRight, ChevronDown, X, Sparkles } from "lucide-react";
 import { parseTerms } from "@/lib/parseTerms";
 
 const TYPES = [
@@ -27,10 +28,12 @@ const SOURCES = [
 export default function SearchPanel({
   projectId,
   defaultType = "both",
+  topic = "",
   onViewLibrary,
 }: {
   projectId: number;
   defaultType?: string;
+  topic?: string;
   onViewLibrary?: () => void;
 }) {
   const [queries, setQueries] = useState("");
@@ -51,6 +54,26 @@ export default function SearchPanel({
   const terms = parseTerms(queries);
   const removeTerm = (idx: number) =>
     setQueries(terms.filter((_, i) => i !== idx).join("\n"));
+
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiUnavailable, setAiUnavailable] = useState(false);
+
+  const fetchSuggestions = async () => {
+    setSuggesting(true);
+    try {
+      const r = await suggestKeywords(topic, terms);
+      setSuggestions(r.terms.filter((t) => !terms.some((x) => x.toLowerCase() === t.toLowerCase())));
+      setAiUnavailable(r.unavailable);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const addSuggestion = (t: string) => {
+    setQueries((q) => (q.trim() ? `${q}\n${t}` : t));
+    setSuggestions((s) => s.filter((x) => x !== t));
+  };
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Re-attach to a running search after a refresh.
@@ -158,6 +181,33 @@ export default function SearchPanel({
                 )}
               </span>
             ))}
+          </div>
+        )}
+
+        {!aiUnavailable && (
+          <div className="mt-2">
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:underline disabled:opacity-50"
+              onClick={fetchSuggestions}
+              disabled={suggesting || running}
+            >
+              <Sparkles size={12} /> {suggesting ? "Thinking…" : "Suggest terms"}
+            </button>
+            {suggestions.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {suggestions.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => addSuggestion(t)}
+                    className="rounded-full border border-dashed border-[var(--primary)] px-2 py-0.5 text-xs text-[var(--primary)] hover:bg-[var(--primary-weak)]"
+                  >
+                    + {t}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

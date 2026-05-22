@@ -45,6 +45,38 @@ export async function createProject(
   return res.json();
 }
 
+export async function deleteProject(id: number): Promise<{ ok: boolean; deleted: Record<string, number> }> {
+  const res = await fetch(`${BASE}/api/projects/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+export async function renameProject(
+  id: number,
+  patch: { name?: string; topic?: string; description?: string },
+): Promise<{ id: number; name: string; topic: string }> {
+  const res = await fetch(`${BASE}/api/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+export async function duplicateProject(id: number): Promise<{ id: number; name: string }> {
+  const res = await fetch(`${BASE}/api/projects/${id}/duplicate`, { method: "POST" });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+export async function suggestKeywords(
+  topic: string,
+  seeds: string[],
+): Promise<{ terms: string[]; unavailable: boolean }> {
+  return postJson(`/api/keyword-suggest`, { topic, seeds });
+}
+
 export interface ArticleFilters {
   q?: string;
   decision?: string;
