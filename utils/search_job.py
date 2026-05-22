@@ -175,7 +175,16 @@ def _run(job_file: Path, queries: list[str], settings: dict, mode: str, project_
             _patch(job_file, current_query=q, completed=i)
 
             fn = _runner
-            results, source_errors = fn(q, **settings)
+            results, source_errors = fn(q, should_cancel=lambda: _is_cancelled(job_file), **settings)
+
+            # The source fan-out can return early on cancel — stop before saving
+            # so we don't half-collect a query the user asked to abort.
+            if _is_cancelled(job_file):
+                data = _read_json(job_file) or {}
+                data.setdefault("log", []).append(f"Cancelled by user after {i} of {len(queries)} searches.")
+                data["done"] = True
+                _write(job_file, data)
+                return
 
             # Apply title keyword filter before saving
             if keywords:

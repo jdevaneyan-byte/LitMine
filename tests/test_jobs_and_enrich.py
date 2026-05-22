@@ -104,5 +104,30 @@ class EnrichTests(unittest.TestCase):
         self.assertEqual(recs[0]["title"], "T A")
 
 
+class SearchRunnerCancelTests(unittest.TestCase):
+    def test_cancel_returns_promptly_with_slow_source(self):
+        """When should_cancel becomes True, _run must abandon a slow source and
+        return quickly instead of blocking up to the per-source timeout."""
+        import time
+
+        from utils import search_runner
+
+        def slow_search(query, max_per_source, year_from):
+            time.sleep(30)  # would block for a long time if awaited
+            return [{"title": "should not appear", "source": "OpenAlex"}]
+
+        with patch("utils.search_runner.openalex.search_articles", slow_search):
+            start = time.monotonic()
+            results, _errors = search_runner.run_article_search_with_status(
+                "x", max_per_source=10, year_from=0,
+                use_openalex=True, use_pubmed=False, use_s2=False, use_arxiv=False,
+                should_cancel=lambda: True,
+            )
+            elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 5, "cancel did not short-circuit the slow source")
+        self.assertEqual(results, [])
+
+
 if __name__ == "__main__":
     unittest.main()

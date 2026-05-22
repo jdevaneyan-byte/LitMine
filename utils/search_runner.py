@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from api import arxiv, openalex, pubmed, semantic_scholar
 from utils.dedup import deduplicate
 
@@ -47,8 +48,9 @@ def run_review_search_with_status(
     use_pubmed: bool,
     use_s2: bool,
     use_arxiv: bool = False,
+    should_cancel=None,
 ) -> tuple[list[dict], dict[str, str]]:
-    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="reviews")
+    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="reviews", should_cancel=should_cancel)
 
 
 def run_article_search_with_status(
@@ -59,8 +61,9 @@ def run_article_search_with_status(
     use_pubmed: bool,
     use_s2: bool,
     use_arxiv: bool = False,
+    should_cancel=None,
 ) -> tuple[list[dict], dict[str, str]]:
-    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="articles")
+    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="articles", should_cancel=should_cancel)
 
 
 def run_both_search_with_status(
@@ -71,8 +74,9 @@ def run_both_search_with_status(
     use_pubmed: bool,
     use_s2: bool,
     use_arxiv: bool = False,
+    should_cancel=None,
 ) -> tuple[list[dict], dict[str, str]]:
-    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="both")
+    return _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode="both", should_cancel=should_cancel)
 
 
 def _pick(module, mode):
@@ -85,29 +89,47 @@ def _pick(module, mode):
     return module.search_articles
 
 
-def _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode):
-    tasks = {}
+def _run(query, max_per_source, year_from, use_openalex, use_pubmed, use_s2, use_arxiv, mode, should_cancel=None):
+    """Search all enabled sources in parallel.
+
+    `should_cancel` is an optional zero-arg callable; when it returns True we stop
+    waiting immediately and return whatever has come back so far. In-flight HTTP
+    calls are abandoned (the pool is shut down without waiting) so the caller can
+    react to a cancel request within a fraction of a second instead of blocking on
+    a slow source for up to 90s."""
     errors = {}
+    all_results = []
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    pool = ThreadPoolExecutor(max_workers=4)
+    future_names = {}
+    try:
         if use_openalex:
-            tasks["OpenAlex"] = pool.submit(_pick(openalex, mode), query, max_per_source, year_from)
-
+            future_names[pool.submit(_pick(openalex, mode), query, max_per_source, year_from)] = "OpenAlex"
         if use_pubmed:
-            tasks["PubMed"] = pool.submit(_pick(pubmed, mode), query, max_per_source, year_from)
-
+            future_names[pool.submit(_pick(pubmed, mode), query, max_per_source, year_from)] = "PubMed"
         if use_s2:
-            tasks["Semantic Scholar"] = pool.submit(_pick(semantic_scholar, mode), query, max_per_source, year_from)
-
+            future_names[pool.submit(_pick(semantic_scholar, mode), query, max_per_source, year_from)] = "Semantic Scholar"
         if use_arxiv:
-            tasks["arXiv"] = pool.submit(_pick(arxiv, mode), query, max_per_source, year_from)
+            future_names[pool.submit(_pick(arxiv, mode), query, max_per_source, year_from)] = "arXiv"
 
-        all_results = []
-        for name, future in tasks.items():
-            try:
-                results = future.result(timeout=90)
-                all_results.extend(results)
-            except Exception as exc:
-                errors[name] = str(exc) or "Search failed"
+        pending = set(future_names)
+        deadline = time.monotonic() + 90
+        while pending:
+            if should_cancel and should_cancel():
+                break
+            if time.monotonic() > deadline:
+                for fut in pending:
+                    errors[future_names[fut]] = "timed out"
+                break
+            done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+            for fut in done:
+                name = future_names[fut]
+                try:
+                    all_results.extend(fut.result())
+                except Exception as exc:
+                    errors[name] = str(exc) or "Search failed"
+    finally:
+        # Don't block on slow/cancelled sources; abandon any still running.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     return deduplicate(all_results), errors
