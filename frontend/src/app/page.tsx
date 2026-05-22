@@ -78,22 +78,26 @@ export default function HomePage() {
         )}
 
         {projects && projects.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {projects.map((p) => (
               <Link
                 key={p.id}
                 href={`/projects/${p.id}`}
-                className="card group relative block overflow-hidden p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                className="card group relative flex h-full flex-col overflow-hidden p-5 pl-6 transition duration-200 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-md"
               >
-                <span className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#3b82f6] to-[#1e40af] opacity-0 transition group-hover:opacity-100" />
-                <div className="absolute right-2 top-2 z-10 flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+                <span
+                  className="absolute inset-y-0 left-0 w-1 opacity-70 transition group-hover:opacity-100"
+                  style={{ background: typeAccent(p.literature_type) }}
+                />
+                <div className="absolute right-2 top-2 z-10 flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5 opacity-0 shadow-sm transition group-hover:opacity-100">
                   <button
                     type="button"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingId(p.id); }}
-                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                    className="rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
                     aria-label={`Rename ${p.name}`}
+                    title="Rename"
                   >
-                    <Pencil size={15} />
+                    <Pencil size={14} />
                   </button>
                   <button
                     type="button"
@@ -103,48 +107,48 @@ export default function HomePage() {
                       await duplicateProject(p.id);
                       reload();
                     }}
-                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                    className="rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
                     aria-label={`Duplicate ${p.name}`}
+                    title="Duplicate"
                   >
-                    <Copy size={15} />
+                    <Copy size={14} />
                   </button>
+                  <span className="mx-0.5 h-4 w-px bg-[var(--border)]" />
                   <button
                     type="button"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleting(p); }}
-                    className="rounded-md p-1.5 text-[var(--faint)] transition hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
+                    className="rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
                     aria-label={`Delete ${p.name}`}
+                    title="Delete"
                   >
-                    <Trash2 size={15} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
-                <div className="flex items-start justify-between gap-2">
-                  {renamingId === p.id ? (
-                    <input
-                      className="input w-full text-base font-semibold"
-                      defaultValue={p.name}
-                      autoFocus
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === "Escape") setRenamingId(null);
-                      }}
-                      onBlur={async (e) => {
-                        const name = e.target.value.trim();
-                        setRenamingId(null);
-                        if (name && name !== p.name) {
-                          await renameProject(p.id, { name });
-                          reload();
-                        }
-                      }}
-                    />
-                  ) : (
-                    <h2 className="font-display text-base font-semibold leading-snug">{p.name}</h2>
-                  )}
-                  <span className="badge shrink-0">{p.literature_type}</span>
-                </div>
-                <p className="mt-1 line-clamp-1 text-xs text-[var(--muted)]">{p.topic || "No topic set"}</p>
-                {p.description && <p className="mt-2 line-clamp-2 text-xs text-[var(--muted)]">{p.description}</p>}
-                <div className="mt-4 flex items-end justify-between">
+                {renamingId === p.id ? (
+                  <input
+                    className="input w-full text-base font-semibold"
+                    defaultValue={p.name}
+                    autoFocus
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    onBlur={async (e) => {
+                      const name = e.target.value.trim();
+                      setRenamingId(null);
+                      if (name && name !== p.name) {
+                        await renameProject(p.id, { name });
+                        reload();
+                      }
+                    }}
+                  />
+                ) : (
+                  <h2 className="line-clamp-2 pr-6 font-display text-[15px] font-semibold leading-snug">{p.name}</h2>
+                )}
+                <p className="mt-1.5 line-clamp-1 text-xs text-[var(--muted)]">{p.topic || "No topic set"}</p>
+                {p.description && <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[var(--faint)]">{p.description}</p>}
+                <div className="mt-auto flex items-end justify-between pt-5">
                   <div className="flex gap-5 text-xs">
                     <Stat label="Library" value={p.library} />
                     <Stat label="Reviews" value={p.curated_reviews} />
@@ -340,6 +344,14 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+// Subtle left-edge accent so card types are scannable without a verbose badge.
+function typeAccent(literatureType: string): string {
+  const t = (literatureType || "").toLowerCase();
+  if (t.startsWith("review article")) return "#7c3aed"; // reviews — violet
+  if (t.startsWith("research article")) return "#0d9488"; // research — teal
+  return "#3b82f6"; // both — blue
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
