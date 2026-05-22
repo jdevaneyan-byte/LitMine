@@ -735,6 +735,18 @@ def enrich_active(project_id: int):
 
 # Search / collect (exposes the existing background search engine)
 
+def _split_queries(queries: list[str]) -> list[str]:
+    """Expand comma-joined queries and drop blanks, so any API client gets the
+    same per-term search behavior the UI provides."""
+    out = []
+    for q in queries:
+        for part in q.split(","):
+            part = part.strip()
+            if part:
+                out.append(part)
+    return out
+
+
 @app.post("/api/projects/{project_id}/search")
 def start_search(project_id: int, req: SearchRequest):
     session = new_session()
@@ -744,7 +756,7 @@ def start_search(project_id: int, req: SearchRequest):
     finally:
         session.close()
 
-    queries = [q.strip() for q in req.queries if q.strip()]
+    queries = _split_queries(req.queries)
     if not queries:
         raise HTTPException(400, "at least one search query is required")
 

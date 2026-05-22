@@ -69,6 +69,11 @@ class ApiShapeTests(unittest.TestCase):
         r = self.client.get(f"/api/projects/{pid}/network", params={"mode": "bogus"})
         self.assertEqual(r.status_code, 422)
 
+    def test_search_splits_comma_queries(self):
+        from backend.main import _split_queries
+        self.assertEqual(_split_queries(["a, b", "c"]), ["a", "b", "c"])
+        self.assertEqual(_split_queries(["  ", "x ,, y"]), ["x", "y"])
+
 
 if __name__ == "__main__":
     unittest.main()
