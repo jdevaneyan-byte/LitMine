@@ -159,6 +159,44 @@ class ApiShapeTests(unittest.TestCase):
     def test_backfill_missing_project_404(self):
         self.assertEqual(self.client.post("/api/projects/99999999/backfill-fields").status_code, 404)
 
+    def test_create_duplicate_name_rejected(self):
+        name = "Dup Name Test 7Q"
+        pid = self.client.post("/api/projects", json={"name": name, "topic": "t", "type": "both"}).json()["id"]
+        try:
+            r = self.client.post("/api/projects", json={"name": name, "topic": "t", "type": "both"})
+            self.assertEqual(r.status_code, 409)
+            r_ci = self.client.post("/api/projects", json={"name": name.lower(), "topic": "t", "type": "both"})
+            self.assertEqual(r_ci.status_code, 409)  # case-insensitive
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+
+    def test_rename_to_existing_name_rejected(self):
+        a = self.client.post("/api/projects", json={"name": "RenA 7Q", "topic": "t", "type": "both"}).json()["id"]
+        b = self.client.post("/api/projects", json={"name": "RenB 7Q", "topic": "t", "type": "both"}).json()["id"]
+        try:
+            r = self.client.patch(f"/api/projects/{b}", json={"name": "RenA 7Q"})
+            self.assertEqual(r.status_code, 409)
+            r_self = self.client.patch(f"/api/projects/{a}", json={"name": "RenA 7Q"})  # renaming to own name is fine
+            self.assertEqual(r_self.status_code, 200)
+        finally:
+            self.client.delete(f"/api/projects/{a}")
+            self.client.delete(f"/api/projects/{b}")
+
+    def test_duplicate_name_increments(self):
+        a = self.client.post("/api/projects", json={"name": "DupInc 7Q", "topic": "t", "type": "both"}).json()["id"]
+        ids = []
+        try:
+            d1 = self.client.post(f"/api/projects/{a}/duplicate").json()["id"]; ids.append(d1)
+            d2 = self.client.post(f"/api/projects/{a}/duplicate").json()["id"]; ids.append(d2)
+            n1 = self.client.get(f"/api/projects/{d1}").json()["name"]
+            n2 = self.client.get(f"/api/projects/{d2}").json()["name"]
+            self.assertEqual(n1, "Copy of DupInc 7Q")
+            self.assertNotEqual(n2, n1)  # second duplicate must not collide
+        finally:
+            self.client.delete(f"/api/projects/{a}")
+            for i in ids:
+                self.client.delete(f"/api/projects/{i}")
+
 
 if __name__ == "__main__":
     unittest.main()

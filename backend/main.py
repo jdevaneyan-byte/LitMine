@@ -153,6 +153,27 @@ def list_projects():
         session.close()
 
 
+def _name_taken(session, name, exclude_id=None) -> bool:
+    """Case-insensitive project-name existence check, optionally excluding one id."""
+    from sqlalchemy import func
+
+    q = session.query(Project.id).filter(func.lower(Project.name) == (name or "").strip().lower())
+    if exclude_id is not None:
+        q = q.filter(Project.id != exclude_id)
+    return session.query(q.exists()).scalar()
+
+
+def _unique_copy_name(session, base_name) -> str:
+    """A non-colliding "Copy of X" name, incrementing "(2)", "(3)", … as needed."""
+    candidate = f"Copy of {base_name}"
+    if not _name_taken(session, candidate):
+        return candidate
+    n = 2
+    while _name_taken(session, f"{candidate} ({n})"):
+        n += 1
+    return f"{candidate} ({n})"
+
+
 @app.post("/api/projects")
 def create_project(body: ProjectCreate):
     name = body.name.strip()
@@ -161,6 +182,8 @@ def create_project(body: ProjectCreate):
         raise HTTPException(400, "name and topic are required")
     session = new_session()
     try:
+        if _name_taken(session, name):
+            raise HTTPException(409, f"A project named '{name}' already exists.")
         p = Project(
             name=name,
             topic=topic,
@@ -256,6 +279,8 @@ def update_project(project_id: int, patch: ProjectPatch):
         if patch.name is not None:
             if not patch.name.strip():
                 raise HTTPException(400, "name cannot be empty")
+            if _name_taken(session, patch.name, exclude_id=project_id):
+                raise HTTPException(409, f"A project named '{patch.name.strip()}' already exists.")
             proj.name = patch.name.strip()
         if patch.topic is not None:
             proj.topic = patch.topic.strip()
@@ -275,7 +300,7 @@ def duplicate_project(project_id: int):
         if not src:
             raise HTTPException(404, "project not found")
         clone = Project(
-            name=f"Copy of {src.name}",
+            name=_unique_copy_name(session, src.name),
             topic=src.topic,
             literature_type=src.literature_type,
             description=src.description,

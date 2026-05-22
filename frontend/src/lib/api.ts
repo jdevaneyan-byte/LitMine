@@ -41,8 +41,15 @@ export async function createProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
+}
+
+// Pull FastAPI's {"detail": "..."} message out of an error response so callers
+// can surface a friendly reason (e.g. duplicate-name conflicts).
+async function errorDetail(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null);
+  return (body && typeof body.detail === "string" && body.detail) || `${res.status} ${res.statusText}`;
 }
 
 export async function deleteProject(id: number): Promise<{ ok: boolean; deleted: Record<string, number> }> {
@@ -60,7 +67,7 @@ export async function renameProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(await errorDetail(res));
   return res.json();
 }
 
