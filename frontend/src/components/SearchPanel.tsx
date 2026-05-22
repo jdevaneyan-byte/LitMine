@@ -8,7 +8,8 @@ import {
   startSearch,
   type SearchStatus,
 } from "@/lib/api";
-import { Search as SearchIcon, ChevronRight, ChevronDown } from "lucide-react";
+import { Search as SearchIcon, ChevronRight, ChevronDown, X } from "lucide-react";
+import { parseTerms } from "@/lib/parseTerms";
 
 const TYPES = [
   ["both", "Review + research"],
@@ -44,7 +45,12 @@ export default function SearchPanel({
 
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<SearchStatus | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const terms = parseTerms(queries);
+  const removeTerm = (idx: number) =>
+    setQueries(terms.filter((_, i) => i !== idx).join("\n"));
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Re-attach to a running search after a refresh.
@@ -69,6 +75,7 @@ export default function SearchPanel({
         if (s.done) {
           stopPolling();
           setJobId(null);
+          setCancelling(false);
         }
       } catch {
         stopPolling();
@@ -84,10 +91,7 @@ export default function SearchPanel({
     setSources((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
 
   const run = async () => {
-    const qs = queries
-      .split("\n")
-      .map((q) => q.trim())
-      .filter(Boolean);
+    const qs = parseTerms(queries);
     if (qs.length === 0) {
       setErr("Enter at least one search term.");
       return;
@@ -122,7 +126,7 @@ export default function SearchPanel({
       {/* Form */}
       <div className="card p-5">
         <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-          Search terms <span className="font-normal">(one per line — each runs across all sources)</span>
+          Search terms <span className="font-normal">(one per line or comma-separated — each runs across all sources)</span>
         </label>
         <textarea
           className="input min-h-[120px] w-full font-mono text-sm"
@@ -131,6 +135,31 @@ export default function SearchPanel({
           onChange={(e) => setQueries(e.target.value)}
           disabled={running}
         />
+        {terms.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-[var(--muted)]">
+              {terms.length} term{terms.length === 1 ? "" : "s"}:
+            </span>
+            {terms.map((t, i) => (
+              <span
+                key={`${t}-${i}`}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs"
+              >
+                {t}
+                {!running && (
+                  <button
+                    type="button"
+                    onClick={() => removeTerm(i)}
+                    className="text-[var(--muted)] hover:text-[var(--danger)]"
+                    aria-label={`Remove ${t}`}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
@@ -252,8 +281,16 @@ export default function SearchPanel({
               <SearchIcon size={15} /> Search &amp; collect
             </button>
           ) : (
-            <button className="btn" onClick={() => jobId && cancelSearch(jobId)}>
-              Cancel
+            <button
+              className="btn"
+              disabled={cancelling}
+              onClick={() => {
+                if (!jobId) return;
+                setCancelling(true);
+                cancelSearch(jobId);
+              }}
+            >
+              {cancelling ? "Cancelling…" : "Cancel"}
             </button>
           )}
         </div>
