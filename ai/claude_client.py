@@ -215,3 +215,36 @@ ARTICLES:
     removed = sum(1 for v in all_results.values() if not v)
     yield f"\n---\n**Filter complete** - {kept} relevant / {removed} not relevant out of {len(articles)} total.\n"
     yield f"\n```json\n{json.dumps(all_results)}\n```\n"
+
+
+def suggest_keywords(topic: str, seeds=None) -> list:
+    """Return related search keywords for a topic. Returns [] if no API key is
+    configured or the call fails — callers degrade gracefully."""
+    seeds = seeds or []
+    try:
+        client = get_client()
+    except Exception:
+        return []
+    seed_line = f" Existing terms: {', '.join(seeds)}." if seeds else ""
+    prompt = (
+        f'Suggest 12 concise literature-search keywords or short phrases for the '
+        f'research topic: "{topic}".{seed_line} '
+        f"Return ONLY a comma-separated list, no numbering, no commentary."
+    )
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text
+    except Exception:
+        return []
+    out, seen = [], set()
+    for part in text.replace("\n", ",").split(","):
+        term = part.strip().lstrip("-•*0123456789. )").strip()
+        key = term.lower()
+        if term and key not in seen:
+            seen.add(key)
+            out.append(term)
+    return out[:12]

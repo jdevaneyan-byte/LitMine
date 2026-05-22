@@ -74,6 +74,58 @@ class ApiShapeTests(unittest.TestCase):
         self.assertEqual(_split_queries(["a, b", "c"]), ["a", "b", "c"])
         self.assertEqual(_split_queries(["  ", "x ,, y"]), ["x", "y"])
 
+    def test_delete_project_removes_it(self):
+        created = self.client.post(
+            "/api/projects",
+            json={"name": "Temp Del", "topic": "t", "type": "both"},
+        ).json()
+        pid = created["id"]
+        r = self.client.delete(f"/api/projects/{pid}")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("deleted", body)
+        self.assertIn("collected_articles", body["deleted"])
+        self.assertEqual(self.client.get(f"/api/projects/{pid}").status_code, 404)
+
+    def test_delete_missing_project_404(self):
+        self.assertEqual(self.client.delete("/api/projects/99999999").status_code, 404)
+
+    def test_rename_project(self):
+        pid = self.client.post(
+            "/api/projects", json={"name": "Before", "topic": "t", "type": "both"}
+        ).json()["id"]
+        try:
+            r = self.client.patch(f"/api/projects/{pid}", json={"name": "After"})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(self.client.get(f"/api/projects/{pid}").json()["name"], "After")
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+
+    def test_duplicate_project_shell_only(self):
+        pid = self.client.post(
+            "/api/projects", json={"name": "Orig", "topic": "top", "type": "review"}
+        ).json()["id"]
+        dup_id = None
+        try:
+            r = self.client.post(f"/api/projects/{pid}/duplicate")
+            self.assertEqual(r.status_code, 200)
+            dup_id = r.json()["id"]
+            dup = self.client.get(f"/api/projects/{dup_id}").json()
+            self.assertTrue(dup["name"].startswith("Copy of"))
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+            if dup_id:
+                self.client.delete(f"/api/projects/{dup_id}")
+
+    def test_keyword_suggest_shape(self):
+        r = self.client.post("/api/keyword-suggest", json={"topic": "drug delivery", "seeds": []})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("terms", body)
+        self.assertIsInstance(body["terms"], list)
+        if not body["terms"]:
+            self.assertTrue(body.get("unavailable"))
+
 
 if __name__ == "__main__":
     unittest.main()

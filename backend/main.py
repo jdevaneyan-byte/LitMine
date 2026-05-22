@@ -67,6 +67,17 @@ class ProjectCreate(BaseModel):
     description: str = ""
 
 
+class ProjectPatch(BaseModel):
+    name: Optional[str] = None
+    topic: Optional[str] = None
+    description: Optional[str] = None
+
+
+class KeywordSuggest(BaseModel):
+    topic: str = ""
+    seeds: list[str] = []
+
+
 class SearchRequest(BaseModel):
     queries: list[str]
     type: str = "both"  # review | research | both
@@ -178,6 +189,109 @@ def get_project(project_id: int):
         }
     finally:
         session.close()
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: int):
+    from database import (
+        CitationLink,
+        CitedArticle,
+        CollectedArticle,
+        CuratedReview,
+        LandscapeAnalysis,
+        LandscapeArticle,
+    )
+
+    session = new_session()
+    try:
+        proj = session.get(Project, project_id)
+        if not proj:
+            raise HTTPException(404, "project not found")
+        deleted = {}
+        for model in (
+            CollectedArticle,
+            CuratedReview,
+            CitedArticle,
+            CitationLink,
+            LandscapeArticle,
+            LandscapeAnalysis,
+        ):
+            q = session.query(model).filter_by(project_id=project_id)
+            deleted[model.__tablename__] = q.count()
+            q.delete(synchronize_session=False)
+        session.delete(proj)
+        session.commit()
+    finally:
+        session.close()
+
+    # Best-effort cleanup of background job files for this project.
+    try:
+        from pathlib import Path
+
+        from utils.job_io import read_json
+
+        for d in ("search_jobs", "ref_jobs", "enrich_jobs", "capture_jobs"):
+            p = Path(d)
+            if not p.exists():
+                continue
+            for f in p.glob("*.json"):
+                data = read_json(f)
+                if data and data.get("project_id") == project_id:
+                    f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    return {"ok": True, "deleted": deleted}
+
+
+@app.patch("/api/projects/{project_id}")
+def update_project(project_id: int, patch: ProjectPatch):
+    session = new_session()
+    try:
+        proj = session.get(Project, project_id)
+        if not proj:
+            raise HTTPException(404, "project not found")
+        if patch.name is not None:
+            if not patch.name.strip():
+                raise HTTPException(400, "name cannot be empty")
+            proj.name = patch.name.strip()
+        if patch.topic is not None:
+            proj.topic = patch.topic.strip()
+        if patch.description is not None:
+            proj.description = patch.description
+        session.commit()
+        return {"id": proj.id, "name": proj.name, "topic": proj.topic}
+    finally:
+        session.close()
+
+
+@app.post("/api/projects/{project_id}/duplicate")
+def duplicate_project(project_id: int):
+    session = new_session()
+    try:
+        src = session.get(Project, project_id)
+        if not src:
+            raise HTTPException(404, "project not found")
+        clone = Project(
+            name=f"Copy of {src.name}",
+            topic=src.topic,
+            literature_type=src.literature_type,
+            description=src.description,
+            stage=3,  # ready to collect, matching create_project
+        )
+        session.add(clone)
+        session.commit()
+        return {"id": clone.id, "name": clone.name}
+    finally:
+        session.close()
+
+
+@app.post("/api/keyword-suggest")
+def keyword_suggest(body: KeywordSuggest):
+    from ai.claude_client import suggest_keywords
+
+    terms = suggest_keywords(body.topic, body.seeds)
+    return {"terms": terms, "unavailable": len(terms) == 0}
 
 
 # Library articles
