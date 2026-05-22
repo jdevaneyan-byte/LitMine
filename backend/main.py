@@ -111,6 +111,8 @@ def _article_dict(a: CollectedArticle) -> dict:
         "pub_type": a.pub_type,
         "category": a.category or "Unclassified",
         "venue": a.venue or "",
+        "field": a.field or "",
+        "field_source": a.field_source or "",
         "citation_count": a.citation_count,
         "screening_status": a.screening_status or "unscreened",
         "tags": a.tags or "",
@@ -305,6 +307,7 @@ def list_articles(
     year_max: int = 0,
     pub_type: str = "all",
     category: str = "all",
+    field: str = "all",
     journal: str = "",
     origin: str = "all",  # all | search | reference
     view: str = "active",  # "active" (default) hides trash; "trash" shows only deleted
@@ -342,6 +345,11 @@ def list_articles(
                 query = query.filter((CollectedArticle.category == "") | (CollectedArticle.category == None) | (CollectedArticle.category == "Unclassified"))  # noqa: E711
             else:
                 query = query.filter(CollectedArticle.category == category)
+        if field != "all":
+            if field == "Unknown":
+                query = query.filter((CollectedArticle.field == "") | (CollectedArticle.field == None) | (CollectedArticle.field == "Unknown"))  # noqa: E711
+            else:
+                query = query.filter(CollectedArticle.field == field)
         if sort == "citations":
             ordered = query.order_by(CollectedArticle.citation_count.desc().nullslast(), CollectedArticle.id.desc())
         else:
@@ -630,6 +638,11 @@ def screening_stats(project_id: int):
             .filter((CollectedArticle.is_deleted == False) | (CollectedArticle.is_deleted == None))  # noqa: E711,E712
         )
         unscreened_vals = [v for v in UNSCREENED if v is not None]
+        from sqlalchemy import func
+        by_field: dict = {}
+        for f, c in base.with_entities(CollectedArticle.field, func.count(CollectedArticle.id)).group_by(CollectedArticle.field).all():
+            key = f or "Unknown"
+            by_field[key] = by_field.get(key, 0) + c
         return {
             "total": base.count(),
             "unscreened": base.filter(CollectedArticle.screening_status.in_(unscreened_vals)).count(),
@@ -639,7 +652,30 @@ def screening_stats(project_id: int):
             "from_search": base.filter((CollectedArticle.origin == "search") | (CollectedArticle.origin == None)).count(),  # noqa: E711
             "from_reference": base.filter(CollectedArticle.origin == "reference").count(),
             "refs_extracted": base.filter(CollectedArticle.references_extracted == True).count(),  # noqa: E712
+            "by_field": by_field,
         }
+    finally:
+        session.close()
+
+
+@app.post("/api/projects/{project_id}/backfill-fields")
+def backfill_fields(project_id: int):
+    from utils.field_classifier import classify
+
+    session = new_session()
+    try:
+        if not session.get(Project, project_id):
+            raise HTTPException(404, "project not found")
+        rows = session.query(CollectedArticle).filter_by(project_id=project_id).all()
+        updated = 0
+        for a in rows:
+            label, src = classify(a.issn or "", a.venue or "")
+            if label != (a.field or "") or src != (a.field_source or ""):
+                a.field = label
+                a.field_source = src
+                updated += 1
+        session.commit()
+        return {"ok": True, "updated": updated, "total": len(rows)}
     finally:
         session.close()
 

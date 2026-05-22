@@ -126,6 +126,39 @@ class ApiShapeTests(unittest.TestCase):
         if not body["terms"]:
             self.assertTrue(body.get("unavailable"))
 
+    def test_screening_stats_has_by_field(self):
+        pid = self.client.post("/api/projects", json={"name": "F", "topic": "t", "type": "both"}).json()["id"]
+        try:
+            r = self.client.get(f"/api/projects/{pid}/screening-stats")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("by_field", r.json())
+            self.assertIsInstance(r.json()["by_field"], dict)
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+
+    def test_articles_accepts_field_param(self):
+        pid = self.client.post("/api/projects", json={"name": "F2", "topic": "t", "type": "both"}).json()["id"]
+        try:
+            r = self.client.get(f"/api/projects/{pid}/articles", params={"field": "Chemistry"})
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("items", r.json())
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+
+    def test_backfill_fields_shape(self):
+        pid = self.client.post("/api/projects", json={"name": "F3", "topic": "t", "type": "both"}).json()["id"]
+        try:
+            r = self.client.post(f"/api/projects/{pid}/backfill-fields")
+            self.assertEqual(r.status_code, 200)
+            body = r.json()
+            self.assertIn("updated", body)
+            self.assertIn("total", body)
+        finally:
+            self.client.delete(f"/api/projects/{pid}")
+
+    def test_backfill_missing_project_404(self):
+        self.assertEqual(self.client.post("/api/projects/99999999/backfill-fields").status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()
