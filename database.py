@@ -109,6 +109,9 @@ class CollectedArticle(Base):
     pub_type = Column(String(60), default="")  # raw publication type from the source
     category = Column(String(30), default="")  # normalized taxonomy (see utils.pub_category)
     venue = Column(String(500), default="")  # journal / venue name
+    issn = Column(String(20), default="")
+    field = Column(String(60), default="")
+    field_source = Column(String(10), default="")
     citation_count = Column(Integer, nullable=True)  # global citations (OpenAlex/S2)
     # Persisted reference extraction (works for any article, not just curated reviews).
     references_json = Column(Text, default="")
@@ -278,6 +281,9 @@ def init_db():
         ("collected_articles", "origin", "VARCHAR(20) DEFAULT 'search'"),
         ("collected_articles", "openalex_id", "VARCHAR(60) DEFAULT ''"),
         ("collected_articles", "referenced_ids", "TEXT DEFAULT ''"),
+        ("collected_articles", "issn", "VARCHAR(20) DEFAULT ''"),
+        ("collected_articles", "field", "VARCHAR(60) DEFAULT ''"),
+        ("collected_articles", "field_source", "VARCHAR(10) DEFAULT ''"),
         ("cited_articles", "is_book", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:
