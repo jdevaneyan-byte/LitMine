@@ -82,7 +82,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ["u", "Unscreen"],
       ["x / Space", "Toggle selection"],
       ["a", "Select all on page"],
-      ["d", "Delete (to trash)"],
+      ["Del / Backspace", "Delete (to trash)"],
     ],
   },
   {
