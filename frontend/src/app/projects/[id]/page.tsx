@@ -3,6 +3,7 @@
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  backfillFields,
   bulkDecision,
   bulkTrash,
   exportUrl,
@@ -307,6 +308,17 @@ const CATEGORIES = [
   "Unclassified",
 ];
 
+const FIELDS_26 = [
+  "Agricultural and Biological Sciences", "Arts and Humanities",
+  "Biochemistry, Genetics and Molecular Biology", "Business, Management and Accounting",
+  "Chemical Engineering", "Chemistry", "Computer Science", "Decision Sciences",
+  "Dentistry", "Earth and Planetary Sciences", "Economics, Econometrics and Finance",
+  "Energy", "Engineering", "Environmental Science", "Health Professions",
+  "Immunology and Microbiology", "Materials Science", "Mathematics", "Medicine",
+  "Neuroscience", "Nursing", "Pharmacology, Toxicology and Pharmaceutics",
+  "Physics and Astronomy", "Psychology", "Social Sciences", "Veterinary",
+];
+
 function LibraryTab({
   projectId,
   decision,
@@ -333,6 +345,8 @@ function LibraryTab({
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("all");
+  const [field, setField] = useState("all");
+  const [fieldOpen, setFieldOpen] = useState(false);
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
   const [sort, setSort] = useState<"year" | "citations">("year");
@@ -376,6 +390,7 @@ function LibraryTab({
         q,
         decision,
         category,
+        field,
         origin: originParam as "all" | "search" | "reference",
         year_min: yearMin ? Number(yearMin) : undefined,
         year_max: yearMax ? Number(yearMax) : undefined,
@@ -390,7 +405,7 @@ function LibraryTab({
         .finally(() => setLoading(false));
     }, 250); // debounce the keyword box
     return () => clearTimeout(handle);
-  }, [projectId, q, decision, category, originParam, yearMin, yearMax, sort, page, dataVersion]);
+  }, [projectId, q, decision, category, field, originParam, yearMin, yearMax, sort, page, dataVersion]);
 
   const [focused, setFocused] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -611,6 +626,41 @@ function LibraryTab({
             </option>
           ))}
         </select>
+        <div className="relative">
+          <button
+            type="button"
+            className="input flex max-w-[200px] items-center gap-1"
+            onClick={() => setFieldOpen((o) => !o)}
+            title="Filter by academic field"
+          >
+            {field === "all" ? "All fields" : field}
+          </button>
+          {fieldOpen && (
+            <div className="absolute z-30 mt-1 max-h-80 w-64 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg">
+              <button className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-[var(--surface-2)]" onClick={() => { setPage(0); setField("all"); setFieldOpen(false); }}>All fields</button>
+              {stats?.by_field && Object.entries(stats.by_field).sort((a, b) => b[1] - a[1]).map(([f, c]) => (
+                <button key={f} className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-[var(--surface-2)]" onClick={() => { setPage(0); setField(f); setFieldOpen(false); }}>
+                  <span className={field === f ? "font-semibold text-[var(--primary)]" : ""}>{f}</span>
+                  <span className="tnum font-mono text-xs text-[var(--muted)]">{c.toLocaleString()}</span>
+                </button>
+              ))}
+              <details className="mt-1 border-t border-[var(--border)] pt-1">
+                <summary className="cursor-pointer px-2 py-1 text-xs text-[var(--muted)]">All 26 fields…</summary>
+                {FIELDS_26.filter((f) => !(stats?.by_field && f in stats.by_field)).map((f) => (
+                  <button key={f} className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-[var(--surface-2)]" onClick={() => { setPage(0); setField(f); setFieldOpen(false); }}>{f}</button>
+                ))}
+              </details>
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn px-2 py-1 text-xs"
+          title="Classify existing papers by field (local, no API)"
+          onClick={async () => { await backfillFields(projectId); onChanged?.(); }}
+        >
+          Backfill fields
+        </button>
         <div className="flex items-center gap-1" title="Year range">
           <input
             className="input w-20"
@@ -691,6 +741,7 @@ function LibraryTab({
                 Refs
               </th>
               <th className="px-3 py-2.5">Type</th>
+              <th className="px-3 py-2.5">Field</th>
               <th className="px-3 py-2.5">Source</th>
               <th className="px-3 py-2.5">Decision</th>
             </tr>
@@ -699,7 +750,7 @@ function LibraryTab({
             {loading &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b">
-                  <td colSpan={9} className="px-3 py-3">
+                  <td colSpan={10} className="px-3 py-3">
                     <div className="h-4 animate-pulse rounded bg-[var(--bg)]" />
                   </td>
                 </tr>
@@ -773,6 +824,9 @@ function LibraryTab({
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.category || "Unclassified"}</td>
+                    <td className="px-3 py-2 text-xs text-[var(--muted)]" title={a.field_source === "issn" ? "Matched by journal ISSN" : a.field_source === "name" ? "Matched by journal name" : "No field match"}>
+                      {a.field || "—"}
+                    </td>
                     <td className="px-3 py-2 text-xs text-[var(--muted)]">{a.source}</td>
                     <td className="px-3 py-2">
                       <DecisionBadge value={a.screening_status} />
@@ -782,7 +836,7 @@ function LibraryTab({
               })}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+                <td colSpan={10} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
                   No matching papers.
                 </td>
               </tr>
