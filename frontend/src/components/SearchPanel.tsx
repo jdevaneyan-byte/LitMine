@@ -150,6 +150,19 @@ export default function SearchPanel({
 
   const running = !!jobId;
 
+  // Derive a single high-level phase for the Progress chip from the status file.
+  // Cancellation isn't a dedicated field, so we detect it from the log line the
+  // worker writes ("Cancelled by user …").
+  const cancelled = !!status && status.log.some((l) => l.toLowerCase().includes("cancelled by user"));
+  const phase: "running" | "done" | "cancelled" | "error" = status?.error
+    ? "error"
+    : cancelled
+    ? "cancelled"
+    : status?.done
+    ? "done"
+    : "running";
+  const sourceWarnings = status ? status.log.filter((l) => l.includes("source warning")).length : 0;
+
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       {/* Form */}
@@ -366,20 +379,30 @@ export default function SearchPanel({
         )}
         {status && (
           <div className="mt-3">
-            <div className="mb-1 flex items-center justify-between text-sm">
-              <span>
-                {status.done ? "Done" : "Searching"} — <span className="tnum font-mono">{status.completed}/{status.total}</span>
-              </span>
-              <span className="text-[var(--muted)]">
-                <span className="tnum font-mono text-[var(--success)]">{status.total_added}</span> added · <span className="tnum font-mono">{status.total_skipped}</span> filtered
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <PhaseChip phase={phase} />
+              <span className="text-sm text-[var(--muted)]">
+                <span className="tnum font-mono text-[var(--text)]">{status.completed}</span>
+                <span className="text-[var(--muted)]">/{status.total}</span> searches
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-[var(--bg)]">
               <div
-                className="h-full rounded-full bg-[var(--primary)] transition-all"
+                className={`h-full rounded-full transition-all ${
+                  phase === "error" ? "bg-[var(--danger)]" : phase === "cancelled" ? "bg-amber-500" : phase === "done" ? "bg-[var(--success)]" : "bg-[var(--primary)]"
+                }`}
                 style={{ width: `${status.total ? (status.completed / status.total) * 100 : 0}%` }}
               />
             </div>
+
+            {/* Live tallies — always visible so the run's outcome is scannable. */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <StatChip label="Articles found" value={status.total_added} tone="#16a34a" />
+              <StatChip label="Duplicates" value={status.duplicates_removed} tone="#0ea5e9" />
+              <StatChip label="Filtered" value={status.total_skipped} tone="#64748b" />
+              {sourceWarnings > 0 && <StatChip label="Source warnings" value={sourceWarnings} tone="#d97706" />}
+            </div>
+
             {status.current_query && !status.done && (
               <div className="mt-2 line-clamp-1 text-xs text-[var(--muted)]">
                 Now: {status.current_query}
@@ -395,11 +418,6 @@ export default function SearchPanel({
                 ))}
               </div>
             )}
-            {status.done && status.duplicates_removed > 0 && (
-              <div className="mt-2 text-xs text-[var(--muted)]">
-                Removed <span className="tnum font-mono">{status.duplicates_removed}</span> fuzzy duplicate(s) after collecting.
-              </div>
-            )}
             {status.done && status.total_added > 0 && onViewLibrary && (
               <button className="btn btn-primary mt-3" onClick={onViewLibrary}>
                 View {status.total_added} papers in Library →
@@ -409,5 +427,36 @@ export default function SearchPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function PhaseChip({ phase }: { phase: "running" | "done" | "cancelled" | "error" }) {
+  const cfg = {
+    running: { label: "In progress", color: "#2563eb", bg: "#2563eb1a", pulse: true },
+    done: { label: "Completed", color: "#16a34a", bg: "#16a34a1a", pulse: false },
+    cancelled: { label: "Cancelled", color: "#d97706", bg: "#d977061a", pulse: false },
+    error: { label: "Error", color: "#dc2626", bg: "#dc26261a", pulse: false },
+  }[phase];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+      style={{ color: cfg.color, background: cfg.bg }}
+    >
+      <span
+        className={`h-2 w-2 rounded-full ${cfg.pulse ? "animate-pulse" : ""}`}
+        style={{ background: cfg.color }}
+      />
+      {cfg.label}
+    </span>
+  );
+}
+
+function StatChip({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs">
+      <span className="h-2 w-2 rounded-full" style={{ background: tone }} />
+      <span className="text-[var(--muted)]">{label}</span>
+      <span className="tnum font-mono font-semibold text-[var(--text)]">{(value ?? 0).toLocaleString()}</span>
+    </span>
   );
 }
