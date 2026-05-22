@@ -3,7 +3,6 @@
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  backfillFields,
   bulkDecision,
   bulkTrash,
   exportUrl,
@@ -653,14 +652,6 @@ function LibraryTab({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          className="btn px-2 py-1 text-xs"
-          title="Classify existing papers by field (local, no API)"
-          onClick={async () => { await backfillFields(projectId); onChanged?.(); }}
-        >
-          Backfill fields
-        </button>
         <div className="flex items-center gap-1" title="Year range">
           <input
             className="input w-20"

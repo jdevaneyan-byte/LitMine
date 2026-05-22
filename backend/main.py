@@ -41,6 +41,37 @@ app.add_middleware(
 
 init_db()
 
+
+def _autoclassify_unlabeled():
+    """On startup, assign a field to any search-collected papers that don't have
+    one yet (e.g. collected before the field engine existed). Local + idempotent:
+    once a row gets a field_source it's skipped on later runs. Reference papers are
+    intentionally left unlabeled — they're targeted, deliberate harvests."""
+    from utils.field_classifier import classify
+
+    session = new_session()
+    try:
+        rows = (
+            session.query(CollectedArticle)
+            .filter((CollectedArticle.field_source == "") | (CollectedArticle.field_source == None))  # noqa: E711
+            .filter((CollectedArticle.origin == "search") | (CollectedArticle.origin == None))  # noqa: E711
+            .all()
+        )
+        changed = 0
+        for a in rows:
+            label, src = classify(a.issn or "", a.venue or "")
+            a.field, a.field_source = label, src
+            changed += 1
+        if changed:
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
+_autoclassify_unlabeled()
+
 UNSCREENED = (None, "", "unscreened", "identified")
 
 
